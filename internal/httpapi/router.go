@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,6 +50,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/oauth/start", requireUser(authService, http.HandlerFunc(handleGoogleOAuthStart(providerService))))
 	mux.HandleFunc("GET /api/v1/providers/google_drive/callback", handleGoogleOAuthCallback(providerService))
 	mux.Handle("GET /api/v1/providers", requireUser(authService, http.HandlerFunc(handleListProviders(providerService))))
+	mux.Handle("GET /api/v1/providers/google_drive/files", requireUser(authService, http.HandlerFunc(handleGoogleDriveFiles(providerService))))
 	return mux
 }
 
@@ -252,5 +254,35 @@ func handleListProviders(service *providers.Service) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"providers": accounts})
+	}
+}
+
+
+func handleGoogleDriveFiles(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		pageSize := 0
+		if raw := strings.TrimSpace(r.URL.Query().Get("page_size")); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 1 {
+				writeError(w, http.StatusBadRequest, "invalid_page_size", "page_size must be a positive integer")
+				return
+			}
+			pageSize = value
+		}
+
+		page, err := service.SyncGoogleDrive(r.Context(), user.ID, r.URL.Query().Get("cursor"), pageSize)
+		switch {
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w, http.StatusNotFound, "provider_not_connected", "google drive is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w, http.StatusBadGateway, "oauth_refresh_failed", "google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to list google drive files")
+		default:
+			writeJSON(w, http.StatusOK, page)
+		}
 	}
 }
