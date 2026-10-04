@@ -1,25 +1,201 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/amishbpatel/clusterstor/internal/auth"
+	"github.com/amishbpatel/clusterstor/internal/devices"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type healthResponse struct {
-	Status string    `json:"status"`
-	Time   time.Time `json:"time"`
+	Status string `json:"status"`
+	Time time.Time `json:"time"`
 }
 
-func NewRouter() http.Handler {
+type errorResponse struct {
+	Code string `json:"code"`
+	Message string `json:"message"`
+}
+
+type userContextKey struct{}
+type tokenContextKey struct{}
+
+func NewRouter(pool *pgxpool.Pool) http.Handler {
+	authService := auth.NewService(pool)
+	deviceService := devices.NewService(pool)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(healthResponse{Status: "ok", Time: time.Now().UTC()})
+		writeJSON(w, http.StatusOK, healthResponse{Status: "ok", Time: time.Now().UTC()})
 	})
 	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"service": "clusterstor-api", "api_version": "v1"})
+		writeJSON(w, http.StatusOK, map[string]string{"service": "clusterstor-api", "api_version": "v1"})
 	})
+
+	mux.HandleFunc("POST /api/v1/auth/signup", handleSignup(authService))
+	mux.HandleFunc("POST /api/v1/auth/login", handleLogin(authService))
+	mux.Handle("POST /api/v1/auth/logout", requireUser(authService, http.HandlerFunc(handleLogout(authService))))
+	mux.Handle("GET /api/v1/me", requireUser(authService, http.HandlerFunc(handleMe)))
+	mux.Handle("POST /api/v1/devices", requireUser(authService, http.HandlerFunc(handleRegisterDevice(deviceService))))
+	mux.Handle("GET /api/v1/devices", requireUser(authService, http.HandlerFunc(handleListDevices(deviceService))))
+	mux.Handle("DELETE /api/v1/devices/{id}", requireUser(authService, http.HandlerFunc(handleRevokeDevice(deviceService))))
 	return mux
+}
+
+func handleSignup(service *auth.Service) http.HandlerFunc {
+	type request struct {
+		Email string `json:"email"`
+		Password string `json:"password"`
+		DisplayName *string `json:"display_name"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		session, err := service.Signup(r.Context(), body.Email, body.Password, body.DisplayName)
+		switch {
+		case errors.Is(err, auth.ErrInvalidEmail):
+			writeError(w, http.StatusBadRequest, "invalid_email", err.Error())
+		case errors.Is(err, auth.ErrWeakPassword):
+			writeError(w, http.StatusBadRequest, "weak_password", err.Error())
+		case errors.Is(err, auth.ErrEmailInUse):
+			writeError(w, http.StatusConflict, "email_in_use", err.Error())
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to create account")
+		default:
+			writeJSON(w, http.StatusCreated, session)
+		}
+	}
+}
+
+func handleLogin(service *auth.Service) http.HandlerFunc {
+	type request struct {
+		Email string `json:"email"`
+		Password string `json:"password"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		session, err := service.Login(r.Context(), body.Email, body.Password)
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			writeError(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to sign in")
+			return
+		}
+		writeJSON(w, http.StatusOK, session)
+	}
+}
+
+func handleLogout(service *auth.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token, _ := r.Context().Value(tokenContextKey{}).(string)
+		if err := service.RevokeSession(r.Context(), token); err != nil {
+			writeError(w, http.StatusUnauthorized, "invalid_session", "session is not valid")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func handleMe(w http.ResponseWriter, r *http.Request) {
+	user, _ := r.Context().Value(userContextKey{}).(auth.User)
+	writeJSON(w, http.StatusOK, user)
+}
+
+func handleRegisterDevice(service *devices.Service) http.HandlerFunc {
+	type request struct {
+		Name string `json:"name"`
+		Platform string `json:"platform"`
+		AgentVersion *string `json:"agent_version"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		registration, err := service.Register(r.Context(), user.ID, devices.RegisterInput{Name: body.Name, Platform: body.Platform, AgentVersion: body.AgentVersion})
+		if errors.Is(err, devices.ErrInvalidDevice) {
+			writeError(w, http.StatusBadRequest, "invalid_device", "name and platform are required")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to register device")
+			return
+		}
+		writeJSON(w, http.StatusCreated, registration)
+	}
+}
+
+func handleListDevices(service *devices.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		result, err := service.List(r.Context(), user.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to list devices")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"devices": result})
+	}
+}
+
+func handleRevokeDevice(service *devices.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		if err := service.Revoke(r.Context(), user.ID, r.PathValue("id")); err != nil {
+			if errors.Is(err, devices.ErrNotFound) {
+				writeError(w, http.StatusNotFound, "device_not_found", "device not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to revoke device")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func requireUser(service *auth.Service, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := strings.TrimSpace(r.Header.Get("Authorization"))
+		if !strings.HasPrefix(header, "Bearer ") {
+			writeError(w, http.StatusUnauthorized, "missing_session", "bearer session token is required")
+			return
+		}
+		token := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
+		user, err := service.Authenticate(r.Context(), token)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "invalid_session", "session is not valid")
+			return
+		}
+		ctx := context.WithValue(r.Context(), userContextKey{}, user)
+		ctx = context.WithValue(ctx, tokenContextKey{}, token)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		return false
+	}
+	return true
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, errorResponse{Code: code, Message: message})
 }
