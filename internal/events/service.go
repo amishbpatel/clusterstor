@@ -64,3 +64,12 @@ func (s *Service) List(ctx context.Context, userID string, after int64, limit in
 	if len(events) > 0 { next = events[len(events)-1].Sequence }
 	return Page{Events:events,NextCursor:next,HasMore:hasMore},nil
 }
+
+
+func (s *Service) LatestSequence(ctx context.Context, userID string) (int64, error) {
+	var sequence int64
+	if err := s.pool.QueryRow(ctx, "SELECT COALESCE(MAX(sequence),0) FROM account_events WHERE user_id=$1::uuid", userID).Scan(&sequence); err != nil {
+		return 0, fmt.Errorf("latest account event sequence: %w", err)
+	}
+	return sequence, nil
+}
