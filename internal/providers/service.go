@@ -390,6 +390,27 @@ func encrypt(key, plaintext []byte) ([]byte, error) {
 	return gcm.Seal(nonce, nonce, plaintext, nil), nil
 }
 
+func decrypt(key, ciphertext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	if len(ciphertext) < gcm.NonceSize() {
+		return nil, errors.New("ciphertext is too short")
+	}
+	nonce := ciphertext[:gcm.NonceSize()]
+	body := ciphertext[gcm.NonceSize():]
+	plaintext, err := gcm.Open(nil, nonce, body, nil)
+	if err != nil {
+		return nil, err
+	}
+	return plaintext, nil
+}
+
 func parseOptionalInt64(value string) (int64, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
