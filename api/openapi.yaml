@@ -279,6 +279,33 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventPage'
         '400': { $ref: '#/components/responses/Error' }
+  /api/v1/events/socket-ticket:
+    post:
+      operationId: createEventSocketTicket
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201':
+          description: One-time short-lived ticket for the event WebSocket
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSocketTicket'
+  /api/v1/events/socket:
+    get:
+      operationId: openEventSocket
+      description: >
+        Upgrades to a WebSocket using a one-time ticket. The socket emits
+        ready/latest_sequence and events_available/sequence messages; clients
+        retrieve authoritative event details from GET /api/v1/events.
+      parameters:
+        - in: query
+          name: ticket
+          required: true
+          schema: { type: string }
+      responses:
+        '101':
+          description: WebSocket upgraded
+        '401': { $ref: '#/components/responses/Error' }
   /api/v1/devices/{id}:
     delete:
       operationId: revokeDevice
@@ -457,6 +484,12 @@ components:
           items: { $ref: '#/components/schemas/AccountEvent' }
         next_cursor: { type: integer, format: int64 }
         has_more: { type: boolean }
+    EventSocketTicket:
+      type: object
+      required: [ticket, expires_at]
+      properties:
+        ticket: { type: string }
+        expires_at: { type: string, format: date-time }
     Error:
       type: object
       required: [code, message]
