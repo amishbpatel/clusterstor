@@ -51,6 +51,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.HandleFunc("GET /api/v1/providers/google_drive/callback", handleGoogleOAuthCallback(providerService))
 	mux.Handle("GET /api/v1/providers", requireUser(authService, http.HandlerFunc(handleListProviders(providerService))))
 	mux.Handle("GET /api/v1/providers/google_drive/files", requireUser(authService, http.HandlerFunc(handleGoogleDriveFiles(providerService))))
+	mux.Handle("POST /api/v1/providers/google_drive/root", requireUser(authService, http.HandlerFunc(handleEnsureGoogleRoot(providerService))))
 	return mux
 }
 
@@ -283,6 +284,26 @@ func handleGoogleDriveFiles(service *providers.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to list google drive files")
 		default:
 			writeJSON(w, http.StatusOK, page)
+		}
+	}
+}
+
+
+func handleEnsureGoogleRoot(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		rootID, err := service.EnsureGoogleRoot(r.Context(), user.ID)
+		switch {
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w, http.StatusNotFound, "provider_not_connected", "google drive is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w, http.StatusBadGateway, "oauth_refresh_failed", "google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to ensure ClusterStor root folder")
+		default:
+			writeJSON(w, http.StatusOK, map[string]string{"root_provider_item_id": rootID, "name": "ClusterStor"})
 		}
 	}
 }
