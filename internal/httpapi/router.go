@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 	"net/url"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/amishbpatel/clusterstor/internal/auth"
 	"github.com/amishbpatel/clusterstor/internal/devices"
