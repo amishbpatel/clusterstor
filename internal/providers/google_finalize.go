@@ -8,9 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -98,13 +96,3 @@ func (s *Service) googleFileInsideManagedRoot(ctx context.Context, accountID str
 	return false, nil
 }
 
-func parseGoogleSize(value string) int64 {
-	n, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
-	return n
-}
-
-func parseGoogleModified(value string) *time.Time {
-	t, err := time.Parse(time.RFC3339, value)
-	if err != nil { return nil }
-	return &t
-}
