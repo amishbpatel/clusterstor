@@ -22,6 +22,7 @@ func main() {
 
 	providerService, err := providers.NewService(pool, providers.Config{
 		APIBaseURL: cfg.APIBaseURL,
+		PublicBaseURL: cfg.PublicBaseURL,
 		GoogleClientID: cfg.GoogleClientID,
 		GoogleClientSecret: cfg.GoogleClientSecret,
 		TokenEncryptionKey: cfg.TokenEncryptionKey,
