@@ -10,6 +10,7 @@ import (
 
 	"github.com/amishbpatel/clusterstor/internal/auth"
 	"github.com/amishbpatel/clusterstor/internal/devices"
+	"github.com/amishbpatel/clusterstor/internal/providers"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -26,7 +27,7 @@ type errorResponse struct {
 type userContextKey struct{}
 type tokenContextKey struct{}
 
-func NewRouter(pool *pgxpool.Pool) http.Handler {
+func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Handler {
 	authService := auth.NewService(pool)
 	deviceService := devices.NewService(pool)
 
@@ -45,6 +46,9 @@ func NewRouter(pool *pgxpool.Pool) http.Handler {
 	mux.Handle("POST /api/v1/devices", requireUser(authService, http.HandlerFunc(handleRegisterDevice(deviceService))))
 	mux.Handle("GET /api/v1/devices", requireUser(authService, http.HandlerFunc(handleListDevices(deviceService))))
 	mux.Handle("DELETE /api/v1/devices/{id}", requireUser(authService, http.HandlerFunc(handleRevokeDevice(deviceService))))
+	mux.Handle("POST /api/v1/providers/google_drive/oauth/start", requireUser(authService, http.HandlerFunc(handleGoogleOAuthStart(providerService))))
+	mux.HandleFunc("GET /api/v1/providers/google_drive/callback", handleGoogleOAuthCallback(providerService))
+	mux.Handle("GET /api/v1/providers", requireUser(authService, http.HandlerFunc(handleListProviders(providerService))))
 	return mux
 }
 
@@ -198,4 +202,55 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorResponse{Code: code, Message: message})
+}
+
+
+func handleGoogleOAuthStart(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		result, err := service.StartGoogleOAuth(r.Context(), user.ID)
+		if errors.Is(err, providers.ErrProviderNotConfigured) {
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "google drive is not configured")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to start google drive connection")
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func handleGoogleOAuthCallback(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if oauthErr := strings.TrimSpace(r.URL.Query().Get("error")); oauthErr != "" {
+			writeError(w, http.StatusBadRequest, "oauth_denied", "google drive authorization was not completed")
+			return
+		}
+		account, err := service.CompleteGoogleOAuth(r.Context(), r.URL.Query().Get("state"), r.URL.Query().Get("code"))
+		switch {
+		case errors.Is(err, providers.ErrInvalidOAuthState):
+			writeError(w, http.StatusBadRequest, "invalid_oauth_state", "oauth state is invalid or expired")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w, http.StatusBadGateway, "oauth_exchange_failed", "google drive token exchange failed")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to complete google drive connection")
+		default:
+			writeJSON(w, http.StatusOK, account)
+		}
+	}
+}
+
+func handleListProviders(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		accounts, err := service.ListAccounts(r.Context(), user.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to list provider accounts")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"providers": accounts})
+	}
 }
