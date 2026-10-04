@@ -254,6 +254,10 @@ func handleGoogleOAuthCallback(service *providers.Service) http.HandlerFunc {
 		case err != nil:
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to complete google drive connection")
 		default:
+			if target := service.PublicBaseURL(); target != "" {
+				http.Redirect(w, r, target+"/dashboard?connected=google_drive", http.StatusFound)
+				return
+			}
 			writeJSON(w, http.StatusOK, account)
 		}
 	}
