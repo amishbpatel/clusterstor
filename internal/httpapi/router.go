@@ -35,6 +35,8 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	authService := auth.NewService(pool)
 	deviceService := devices.NewService(pool)
 	eventService := events.NewService(pool)
+	eventBroker := events.NewBroker(pool)
+	eventBroker.Start(context.Background())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +63,8 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
 	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService))))
 	mux.Handle("GET /api/v1/events", requireUser(authService, http.HandlerFunc(handleAccountEvents(eventService))))
+	mux.Handle("POST /api/v1/events/socket-ticket", requireUser(authService, http.HandlerFunc(handleEventSocketTicket(eventService))))
+	mux.HandleFunc("GET /api/v1/events/socket", handleEventSocket(eventService, eventBroker))
 	return mux
 }
 
@@ -458,5 +462,56 @@ func handleAccountEvents(service *events.Service) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, page)
+	}
+}
+
+
+func handleEventSocketTicket(service *events.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		ticket, expiresAt, err := service.CreateSocketTicket(r.Context(), user.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to create socket ticket")
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"ticket": ticket, "expires_at": expiresAt})
+	}
+}
+
+func handleEventSocket(service *events.Service, broker *events.Broker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, err := service.ConsumeSocketTicket(r.Context(), strings.TrimSpace(r.URL.Query().Get("ticket")))
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "invalid_socket_ticket", "socket ticket is invalid or expired")
+			return
+		}
+		conn, err := upgradeWebSocket(w, r)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		notifications, unsubscribe := broker.Subscribe(userID)
+		defer unsubscribe()
+
+		latest, err := service.LatestSequence(r.Context(), userID)
+		if err != nil { return }
+		ready, _ := json.Marshal(map[string]any{"type":"ready","latest_sequence":latest})
+		if err := conn.WriteText(ready); err != nil { return }
+
+		ping := time.NewTicker(30 * time.Second)
+		defer ping.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case sequence, ok := <-notifications:
+				if !ok { return }
+				message, _ := json.Marshal(map[string]any{"type":"events_available","sequence":sequence})
+				if err := conn.WriteText(message); err != nil { return }
+			case <-ping.C:
+				if err := conn.WritePing(); err != nil { return }
+			}
+		}
 	}
 }
