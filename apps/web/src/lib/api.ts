@@ -111,3 +111,22 @@ export function formatBytes(value?: number | null) {
 }
 
 export { API_BASE };
+
+export async function openEventSocket(onEventsAvailable: (sequence: number) => void) {
+  const ticket = await api<{ ticket: string }>('/api/v1/events/socket-ticket', { method: 'POST' });
+  const base = new URL(API_BASE || window.location.origin, window.location.origin);
+  base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
+  base.pathname = '/api/v1/events/socket';
+  base.search = new URLSearchParams({ ticket: ticket.ticket }).toString();
+
+  const socket = new WebSocket(base.toString());
+  socket.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data);
+      if (message.type === 'events_available' && typeof message.sequence === 'number') {
+        onEventsAvailable(message.sequence);
+      }
+    } catch {}
+  };
+  return socket;
+}
