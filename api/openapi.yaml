@@ -141,6 +141,29 @@ paths:
         '400': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /api/v1/providers/google_drive/files:
+    get:
+      operationId: listGoogleDriveFiles
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: cursor
+          required: false
+          schema: { type: string }
+        - in: query
+          name: page_size
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        '200':
+          description: Google Drive files synchronized into ClusterStor nodes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DrivePage'
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /api/v1/devices/{id}:
     delete:
       operationId: revokeDevice
@@ -242,6 +265,26 @@ components:
         last_synced_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    DriveItem:
+      type: object
+      required: [node_id, provider_item_id, name, node_type]
+      properties:
+        node_id: { type: string, format: uuid }
+        provider_item_id: { type: string }
+        parent_item_id: { type: [string, 'null'] }
+        name: { type: string }
+        node_type: { type: string, enum: [file, folder] }
+        mime_type: { type: string }
+        size_bytes: { type: [integer, 'null'], format: int64 }
+        modified_at: { type: [string, 'null'], format: date-time }
+    DrivePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DriveItem' }
+        next_page_token: { type: string }
     Error:
       type: object
       required: [code, message]
