@@ -20,8 +20,8 @@ func main() {
 	defer pool.Close()
 
 	server := &http.Server{
-		Addr:    cfg.HTTPAddr,
-		Handler: httpapi.NewRouter(),
+		Addr: cfg.HTTPAddr,
+		Handler: httpapi.NewRouter(pool),
 	}
 
 	log.Printf("clusterstor api listening on %s", cfg.HTTPAddr)
