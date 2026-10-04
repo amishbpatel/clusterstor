@@ -1,0 +1,17 @@
+BEGIN;
+DROP TABLE IF EXISTS feature_flags;
+DROP TABLE IF EXISTS usage_ledger;
+DROP TABLE IF EXISTS subscriptions;
+DROP TABLE IF EXISTS entitlements;
+DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS account_events;
+DROP TABLE IF EXISTS storage_objects;
+ALTER TABLE nodes DROP CONSTRAINT IF EXISTS nodes_current_version_fk;
+DROP TABLE IF EXISTS file_versions;
+DROP TABLE IF EXISTS nodes;
+DROP TABLE IF EXISTS provider_accounts;
+DROP TABLE IF EXISTS device_credentials;
+DROP TABLE IF EXISTS devices;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS users;
+COMMIT;

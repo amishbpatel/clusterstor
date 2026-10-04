@@ -1,0 +1,47 @@
+openapi: 3.1.0
+info:
+  title: ClusterStor API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, time]
+                properties:
+                  status: { type: string }
+                  time: { type: string, format: date-time }
+  /api/v1/version:
+    get:
+      operationId: getVersion
+      responses:
+        '200':
+          description: API version
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [service, api_version]
+                properties:
+                  service: { type: string }
+                  api_version: { type: string }
+components:
+  schemas:
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        request_id: { type: string }
+        details:
+          type: object
+          additionalProperties: true
