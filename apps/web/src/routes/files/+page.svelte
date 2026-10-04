@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import AppShell from '$lib/AppShell.svelte';
-  import { api, API_BASE, getToken, formatBytes, type DriveItem } from '$lib/api';
+  import { api, API_BASE, getToken, formatBytes, openEventSocket, type DriveItem } from '$lib/api';
 
   let items: DriveItem[] = [];
   let rootProviderID = '';
@@ -129,6 +129,20 @@
   onMount(() => {
     if (!getToken()) { goto('/login'); return; }
     load();
+
+    let socket: WebSocket | null = null;
+    let closed = false;
+    openEventSocket(() => {
+      if (!working) load();
+    }).then((value) => {
+      if (closed) value.close();
+      else socket = value;
+    }).catch(() => {});
+
+    return () => {
+      closed = true;
+      socket?.close();
+    };
   });
 </script>
 
