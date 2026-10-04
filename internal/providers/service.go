@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -407,6 +406,3 @@ func nullableString(value string) any {
 	return value
 }
 
-func cloneBody(body []byte) io.Reader {
-	return bytes.NewReader(body)
-}
