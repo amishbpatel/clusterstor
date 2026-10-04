@@ -37,6 +37,7 @@ var (
 
 type Config struct {
 	APIBaseURL          string
+	PublicBaseURL       string
 	GoogleClientID      string
 	GoogleClientSecret  string
 	TokenEncryptionKey  string
@@ -95,6 +96,8 @@ type googleAbout struct {
 		Usage string `json:"usage"`
 	} `json:"storageQuota"`
 }
+
+func (s *Service) PublicBaseURL() string { return strings.TrimRight(s.cfg.PublicBaseURL, "/") }
 
 func NewService(pool *pgxpool.Pool, cfg Config) (*Service, error) {
 	key, err := decodeEncryptionKey(cfg.TokenEncryptionKey)
