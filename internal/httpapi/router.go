@@ -52,6 +52,8 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("GET /api/v1/providers", requireUser(authService, http.HandlerFunc(handleListProviders(providerService))))
 	mux.Handle("GET /api/v1/providers/google_drive/files", requireUser(authService, http.HandlerFunc(handleGoogleDriveFiles(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/root", requireUser(authService, http.HandlerFunc(handleEnsureGoogleRoot(providerService))))
+	mux.Handle("POST /api/v1/providers/google_drive/folders", requireUser(authService, http.HandlerFunc(handleCreateGoogleFolder(providerService))))
+	mux.Handle("POST /api/v1/providers/google_drive/uploads", requireUser(authService, http.HandlerFunc(handleBeginGoogleUpload(providerService))))
 	return mux
 }
 
@@ -304,6 +306,65 @@ func handleEnsureGoogleRoot(service *providers.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to ensure ClusterStor root folder")
 		default:
 			writeJSON(w, http.StatusOK, map[string]string{"root_provider_item_id": rootID, "name": "ClusterStor"})
+		}
+	}
+}
+
+
+func handleCreateGoogleFolder(service *providers.Service) http.HandlerFunc {
+	type request struct {
+		Name string `json:"name"`
+		ParentNodeID *string `json:"parent_node_id"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		item, err := service.CreateGoogleFolder(r.Context(), user.ID, providers.CreateFolderInput{Name: body.Name, ParentNodeID: body.ParentNodeID})
+		switch {
+		case errors.Is(err, providers.ErrInvalidProviderParent):
+			writeError(w, http.StatusBadRequest, "invalid_parent", "parent folder must be inside the ClusterStor provider root")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w, http.StatusNotFound, "provider_not_connected", "google drive is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w, http.StatusBadGateway, "oauth_refresh_failed", "google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to create google drive folder")
+		default:
+			writeJSON(w, http.StatusCreated, item)
+		}
+	}
+}
+
+func handleBeginGoogleUpload(service *providers.Service) http.HandlerFunc {
+	type request struct {
+		Name string `json:"name"`
+		ContentType string `json:"content_type"`
+		SizeBytes int64 `json:"size_bytes"`
+		ParentNodeID *string `json:"parent_node_id"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		session, err := service.BeginGoogleUpload(r.Context(), user.ID, providers.UploadSessionInput{
+			Name: body.Name, ContentType: body.ContentType, SizeBytes: body.SizeBytes, ParentNodeID: body.ParentNodeID,
+		})
+		switch {
+		case errors.Is(err, providers.ErrInvalidProviderParent):
+			writeError(w, http.StatusBadRequest, "invalid_parent", "parent folder must be inside the ClusterStor provider root")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w, http.StatusNotFound, "provider_not_connected", "google drive is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w, http.StatusBadGateway, "oauth_refresh_failed", "google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to start google drive upload")
+		default:
+			writeJSON(w, http.StatusCreated, session)
 		}
 	}
 }
