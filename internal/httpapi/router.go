@@ -54,6 +54,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/root", requireUser(authService, http.HandlerFunc(handleEnsureGoogleRoot(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/folders", requireUser(authService, http.HandlerFunc(handleCreateGoogleFolder(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads", requireUser(authService, http.HandlerFunc(handleBeginGoogleUpload(providerService))))
+	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
 	return mux
 }
 
@@ -365,6 +366,33 @@ func handleBeginGoogleUpload(service *providers.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to start google drive upload")
 		default:
 			writeJSON(w, http.StatusCreated, session)
+		}
+	}
+}
+
+
+func handleFinalizeGoogleUpload(service *providers.Service) http.HandlerFunc {
+	type request struct {
+		ProviderItemID string `json:"provider_item_id"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		result, err := service.FinalizeGoogleUpload(r.Context(), user.ID, providers.FinalizeUploadInput{ProviderItemID: body.ProviderItemID})
+		switch {
+		case errors.Is(err, providers.ErrUploadedFileOutsideRoot):
+			writeError(w, http.StatusBadRequest, "outside_clusterstor_root", "uploaded file must be inside the ClusterStor provider root")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w, http.StatusNotFound, "provider_not_connected", "google drive is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w, http.StatusBadGateway, "oauth_refresh_failed", "google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to finalize google drive upload")
+		default:
+			writeJSON(w, http.StatusCreated, result)
 		}
 	}
 }
