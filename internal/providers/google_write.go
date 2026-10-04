@@ -69,6 +69,10 @@ func (s *Service) CreateGoogleFolder(ctx context.Context, userID string, input C
 			return DriveItem{}, fmt.Errorf("link folder parent: %w", err)
 		}
 	}
+	payload, _ := json.Marshal(map[string]any{"provider":"google_drive","provider_item_id":items[0].ProviderItemID,"name":items[0].Name})
+	if _, err := s.pool.Exec(ctx, "INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'folder.created','node',$2::uuid,$3::jsonb)", userID, items[0].NodeID, string(payload)); err != nil {
+		return DriveItem{}, fmt.Errorf("record folder event: %w", err)
+	}
 	return items[0], nil
 }
 
