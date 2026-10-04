@@ -96,6 +96,51 @@ paths:
                 $ref: '#/components/schemas/DeviceRegistration'
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
+  /api/v1/providers:
+    get:
+      operationId: listProviders
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Connected storage providers
+  /api/v1/providers/google_drive/oauth/start:
+    post:
+      operationId: startGoogleDriveOAuth
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Google Drive authorization URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthStart'
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/providers/google_drive/callback:
+    get:
+      operationId: completeGoogleDriveOAuth
+      parameters:
+        - in: query
+          name: state
+          required: true
+          schema: { type: string }
+        - in: query
+          name: code
+          required: false
+          schema: { type: string }
+        - in: query
+          name: error
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Google Drive account connected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderAccount'
+        '400': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /api/v1/devices/{id}:
     delete:
       operationId: revokeDevice
@@ -176,6 +221,27 @@ components:
       properties:
         device: { $ref: '#/components/schemas/Device' }
         secret: { type: string }
+    OAuthStart:
+      type: object
+      required: [authorization_url, expires_at]
+      properties:
+        authorization_url: { type: string, format: uri }
+        expires_at: { type: string, format: date-time }
+    ProviderAccount:
+      type: object
+      required: [id, provider, status, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string }
+        external_account_id: { type: [string, 'null'] }
+        display_name: { type: [string, 'null'] }
+        status: { type: string }
+        quota_total_bytes: { type: [integer, 'null'], format: int64 }
+        quota_used_bytes: { type: [integer, 'null'], format: int64 }
+        quota_free_bytes: { type: [integer, 'null'], format: int64 }
+        last_synced_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     Error:
       type: object
       required: [code, message]
