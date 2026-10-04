@@ -164,6 +164,58 @@ paths:
         '404': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /api/v1/providers/google_drive/root:
+    post:
+      operationId: ensureGoogleDriveRoot
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Ensure the dedicated ClusterStor folder exists in Google Drive
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/providers/google_drive/folders:
+    post:
+      operationId: createGoogleDriveFolder
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFolderRequest'
+      responses:
+        '201':
+          description: Folder created beneath the ClusterStor provider root
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriveItem'
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/providers/google_drive/uploads:
+    post:
+      operationId: beginGoogleDriveUpload
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BeginUploadRequest'
+      responses:
+        '201':
+          description: Resumable Google Drive upload session created beneath the ClusterStor provider root
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /api/v1/devices/{id}:
     delete:
       operationId: revokeDevice
@@ -285,6 +337,29 @@ components:
           type: array
           items: { $ref: '#/components/schemas/DriveItem' }
         next_page_token: { type: string }
+    CreateFolderRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        parent_node_id: { type: [string, 'null'], format: uuid }
+    BeginUploadRequest:
+      type: object
+      required: [name, size_bytes]
+      properties:
+        name: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer, format: int64, minimum: 0 }
+        parent_node_id: { type: [string, 'null'], format: uuid }
+    UploadSession:
+      type: object
+      required: [upload_url, parent_provider_id, name, content_type, size_bytes]
+      properties:
+        upload_url: { type: string, format: uri }
+        parent_provider_id: { type: string }
+        name: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer, format: int64 }
     Error:
       type: object
       required: [code, message]
