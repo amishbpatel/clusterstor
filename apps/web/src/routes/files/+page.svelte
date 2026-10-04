@@ -81,8 +81,7 @@
       const uploaded = await fetch(session.upload_url, {
         method: 'PUT',
         headers: {
-          'Content-Type': file.type || 'application/octet-stream',
-          'Content-Length': String(file.size)
+          'Content-Type': file.type || 'application/octet-stream'
         },
         body: file
       });
