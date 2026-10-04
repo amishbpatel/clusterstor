@@ -1,4 +1,4 @@
-.PHONY: test fmt api worker agent watchdog db-up db-down
+.PHONY: test fmt api worker agent watchdog db-up db-down migrate-up migrate-down
 
 test:
 	go test ./...
@@ -23,3 +23,9 @@ db-up:
 
 db-down:
 	docker compose down
+
+migrate-up:
+	bash ./scripts/migrate.sh up
+
+migrate-down:
+	bash ./scripts/migrate.sh down
