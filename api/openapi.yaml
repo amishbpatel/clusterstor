@@ -216,6 +216,27 @@ paths:
         '404': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /api/v1/providers/google_drive/uploads/complete:
+    post:
+      operationId: finalizeGoogleDriveUpload
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinalizeUploadRequest'
+      responses:
+        '201':
+          description: Uploaded Google Drive object finalized into a ClusterStor file version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinalizedUpload'
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /api/v1/devices/{id}:
     delete:
       operationId: revokeDevice
@@ -359,6 +380,20 @@ components:
         parent_provider_id: { type: string }
         name: { type: string }
         content_type: { type: string }
+        size_bytes: { type: integer, format: int64 }
+    FinalizeUploadRequest:
+      type: object
+      required: [provider_item_id]
+      properties:
+        provider_item_id: { type: string }
+    FinalizedUpload:
+      type: object
+      required: [node_id, version_id, provider_item_id, name, size_bytes]
+      properties:
+        node_id: { type: string, format: uuid }
+        version_id: { type: string, format: uuid }
+        provider_item_id: { type: string }
+        name: { type: string }
         size_bytes: { type: integer, format: int64 }
     Error:
       type: object
