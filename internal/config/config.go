@@ -3,11 +3,14 @@ package config
 import "os"
 
 type Config struct {
-	Environment   string
-	HTTPAddr      string
-	DatabaseURL   string
-	PublicBaseURL string
-	APIBaseURL    string
+	Environment        string
+	HTTPAddr           string
+	DatabaseURL        string
+	PublicBaseURL      string
+	APIBaseURL         string
+	GoogleClientID     string
+	GoogleClientSecret string
+	TokenEncryptionKey string
 }
 
 func Load() Config {
@@ -17,6 +20,9 @@ func Load() Config {
 		DatabaseURL: env("CLUSTERSTOR_DATABASE_URL", "postgres://clusterstor:clusterstor@localhost:5432/clusterstor?sslmode=disable"),
 		PublicBaseURL: env("CLUSTERSTOR_PUBLIC_BASE_URL", "http://localhost:5173"),
 		APIBaseURL: env("CLUSTERSTOR_API_BASE_URL", "http://localhost:8080"),
+		GoogleClientID: os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		TokenEncryptionKey: os.Getenv("CLUSTERSTOR_TOKEN_ENCRYPTION_KEY"),
 	}
 }
 
