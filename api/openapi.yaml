@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ClusterStor API
-  version: 0.1.0
+  version: 0.2.0
 servers:
   - url: http://localhost:8080
 paths:
@@ -11,37 +11,174 @@ paths:
       responses:
         '200':
           description: Service healthy
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [status, time]
-                properties:
-                  status: { type: string }
-                  time: { type: string, format: date-time }
   /api/v1/version:
     get:
       operationId: getVersion
       responses:
         '200':
           description: API version
+  /api/v1/auth/signup:
+    post:
+      operationId: signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '201':
+          description: Account created
           content:
             application/json:
               schema:
-                type: object
-                required: [service, api_version]
-                properties:
-                  service: { type: string }
-                  api_version: { type: string }
+                $ref: '#/components/schemas/Session'
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Signed out }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/me:
+    get:
+      operationId: getCurrentUser
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/devices:
+    get:
+      operationId: listDevices
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Registered devices
+    post:
+      operationId: registerDevice
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceRequest'
+      responses:
+        '201':
+          description: Device registered. The secret is returned once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceRegistration'
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/devices/{id}:
+    delete:
+      operationId: revokeDevice
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Device revoked }
+        '404': { $ref: '#/components/responses/Error' }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    Error:
+      description: Request failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
   schemas:
+    SignupRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 12 }
+        display_name: { type: [string, 'null'] }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    User:
+      type: object
+      required: [id, email, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+    Session:
+      type: object
+      required: [token, expires_at, user]
+      properties:
+        token: { type: string }
+        expires_at: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/User' }
+    RegisterDeviceRequest:
+      type: object
+      required: [name, platform]
+      properties:
+        name: { type: string }
+        platform: { type: string }
+        agent_version: { type: [string, 'null'] }
+    Device:
+      type: object
+      required: [id, name, platform, status, peer_contribution_enabled, peer_contribution_bytes, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        platform: { type: string }
+        agent_version: { type: [string, 'null'] }
+        status: { type: string }
+        peer_contribution_enabled: { type: boolean }
+        peer_contribution_bytes: { type: integer, format: int64 }
+        last_seen_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+    DeviceRegistration:
+      type: object
+      required: [device, secret]
+      properties:
+        device: { $ref: '#/components/schemas/Device' }
+        secret: { type: string }
     Error:
       type: object
-      required: [code, message, request_id]
+      required: [code, message]
       properties:
         code: { type: string }
         message: { type: string }
-        request_id: { type: string }
-        details:
-          type: object
-          additionalProperties: true
