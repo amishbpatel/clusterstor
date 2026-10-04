@@ -13,6 +13,7 @@ import (
 
 	"github.com/amishbpatel/clusterstor/internal/auth"
 	"github.com/amishbpatel/clusterstor/internal/devices"
+	"github.com/amishbpatel/clusterstor/internal/events"
 	"github.com/amishbpatel/clusterstor/internal/providers"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -33,6 +34,7 @@ type tokenContextKey struct{}
 func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Handler {
 	authService := auth.NewService(pool)
 	deviceService := devices.NewService(pool)
+	eventService := events.NewService(pool)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +60,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/uploads", requireUser(authService, http.HandlerFunc(handleBeginGoogleUpload(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
 	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService))))
+	mux.Handle("GET /api/v1/events", requireUser(authService, http.HandlerFunc(handleAccountEvents(eventService))))
 	return mux
 }
 
@@ -424,5 +427,36 @@ func handleDownloadNode(service *providers.Service) http.HandlerFunc {
 			w.WriteHeader(stream.Response.StatusCode)
 			_, _ = io.Copy(w, stream.Response.Body)
 		}
+	}
+}
+
+
+func handleAccountEvents(service *events.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		after := int64(0)
+		if raw := strings.TrimSpace(r.URL.Query().Get("after")); raw != "" {
+			value, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || value < 0 {
+				writeError(w, http.StatusBadRequest, "invalid_cursor", "after must be a non-negative integer sequence")
+				return
+			}
+			after = value
+		}
+		limit := 0
+		if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 1 {
+				writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
+				return
+			}
+			limit = value
+		}
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		page, err := service.List(r.Context(), user.ID, after, limit)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to list account events")
+			return
+		}
+		writeJSON(w, http.StatusOK, page)
 	}
 }
