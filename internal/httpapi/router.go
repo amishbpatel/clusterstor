@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+	"net/url"
 
 	"github.com/amishbpatel/clusterstor/internal/auth"
 	"github.com/amishbpatel/clusterstor/internal/devices"
@@ -55,6 +57,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/folders", requireUser(authService, http.HandlerFunc(handleCreateGoogleFolder(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads", requireUser(authService, http.HandlerFunc(handleBeginGoogleUpload(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
+	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService))))
 	return mux
 }
 
@@ -393,6 +396,33 @@ func handleFinalizeGoogleUpload(service *providers.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to finalize google drive upload")
 		default:
 			writeJSON(w, http.StatusCreated, result)
+		}
+	}
+}
+
+
+func handleDownloadNode(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		stream, err := service.OpenGoogleDownload(r.Context(), user.ID, r.PathValue("id"), r.Header.Get("Range"))
+		switch {
+		case errors.Is(err, providers.ErrDownloadNotFound):
+			writeError(w, http.StatusNotFound, "download_not_found", "file is not available for download")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w, http.StatusBadGateway, "oauth_refresh_failed", "google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to open google drive download")
+		default:
+			defer stream.Response.Body.Close()
+			for _, header := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"} {
+				if value := stream.Response.Header.Get(header); value != "" { w.Header().Set(header, value) }
+			}
+			w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(stream.Name))
+			w.Header().Set("Cache-Control", "private, no-store")
+			w.WriteHeader(stream.Response.StatusCode)
+			_, _ = io.Copy(w, stream.Response.Body)
 		}
 	}
 }
