@@ -258,6 +258,27 @@ paths:
         '404': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /api/v1/events:
+    get:
+      operationId: listAccountEvents
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: after
+          required: false
+          schema: { type: integer, format: int64, minimum: 0 }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        '200':
+          description: Monotonic account event catch-up page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPage'
+        '400': { $ref: '#/components/responses/Error' }
   /api/v1/devices/{id}:
     delete:
       operationId: revokeDevice
@@ -416,6 +437,26 @@ components:
         provider_item_id: { type: string }
         name: { type: string }
         size_bytes: { type: integer, format: int64 }
+    AccountEvent:
+      type: object
+      required: [id, sequence, event_type, payload, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        sequence: { type: integer, format: int64 }
+        event_type: { type: string }
+        resource_type: { type: [string, 'null'] }
+        resource_id: { type: [string, 'null'], format: uuid }
+        payload: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+    EventPage:
+      type: object
+      required: [events, next_cursor, has_more]
+      properties:
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/AccountEvent' }
+        next_cursor: { type: integer, format: int64 }
+        has_more: { type: boolean }
     Error:
       type: object
       required: [code, message]
