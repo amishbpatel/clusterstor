@@ -598,3 +598,143 @@ html { scroll-behavior:smooth; }
     overflow:auto;
   }
 }
+
+
+/* Dashboard storage overview */
+.dashboard-summary {
+  display:grid;
+  grid-template-columns:180px minmax(0,1fr);
+  gap:12px;
+  align-items:start;
+}
+.compact-stat {
+  min-height:118px;
+}
+.storage-overview {
+  min-width:0;
+}
+.storage-overview-head {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:20px;
+  margin-bottom:16px;
+}
+.storage-overview-head h2 {
+  margin:.3rem 0 0;
+}
+.storage-total-copy {
+  display:grid;
+  justify-items:end;
+  gap:2px;
+}
+.storage-total-copy strong {
+  font-size:1.2rem;
+}
+.storage-total-copy span {
+  color:#8092b3;
+  font-size:.76rem;
+}
+.capacity-block {
+  display:grid;
+  gap:7px;
+}
+.aggregate-capacity {
+  padding:12px 0 15px;
+  border-bottom:1px solid #263454;
+}
+.capacity-meta,
+.capacity-foot {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.capacity-meta {
+  font-size:.8rem;
+  color:#b6c5df;
+}
+.capacity-meta strong {
+  color:#dce8ff;
+}
+.capacity-foot {
+  color:#7f91b2;
+  font-size:.73rem;
+}
+.capacity-track {
+  height:11px;
+  border-radius:999px;
+  overflow:hidden;
+  background:#0d172b;
+  border:1px solid #263b61;
+}
+.capacity-fill {
+  display:block;
+  height:100%;
+  min-width:2px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#5b8cff,#5fdcff);
+}
+.provider-capacity-list {
+  display:grid;
+}
+.provider-capacity-row {
+  display:grid;
+  grid-template-columns:minmax(180px,.45fr) minmax(260px,1fr);
+  gap:20px;
+  padding:15px 0;
+  border-bottom:1px solid #263454;
+}
+.provider-capacity-row:last-child {
+  border-bottom:0;
+  padding-bottom:0;
+}
+.provider-capacity-head {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+}
+.provider-capacity-head > div {
+  display:grid;
+  gap:4px;
+  min-width:0;
+}
+.provider-capacity-head > div > strong {
+  color:#eef4ff;
+}
+.provider-capacity-head > div > span {
+  color:#7487a9;
+  font-size:.74rem;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.provider-connect-card {
+  margin-top:12px;
+}
+
+@media (max-width:900px) {
+  .dashboard-summary {
+    grid-template-columns:1fr;
+  }
+  .compact-stat {
+    min-height:auto;
+  }
+}
+@media (max-width:700px) {
+  .storage-overview-head,
+  .provider-capacity-row {
+    grid-template-columns:1fr;
+  }
+  .storage-overview-head {
+    flex-direction:column;
+  }
+  .storage-total-copy {
+    justify-items:start;
+  }
+  .provider-capacity-row {
+    display:grid;
+    gap:10px;
+  }
+}
