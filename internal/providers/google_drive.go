@@ -26,6 +26,7 @@ var ErrProviderAccountNotFound = errors.New("provider account not found")
 
 type DriveItem struct {
 	NodeID         string     `json:"node_id"`
+	Provider       string     `json:"provider"`
 	ProviderItemID string     `json:"provider_item_id"`
 	ParentItemID   *string    `json:"parent_item_id,omitempty"`
 	Name           string     `json:"name"`
@@ -317,6 +318,7 @@ func (s *Service) upsertGoogleFiles(ctx context.Context, userID, accountID strin
 
 		items = append(items, DriveItem{
 			NodeID: nodeID,
+			Provider: "google_drive",
 			ProviderItemID: file.ID,
 			ParentItemID: parentItemID,
 			Name: file.Name,
