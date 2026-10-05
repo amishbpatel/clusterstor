@@ -384,12 +384,12 @@
     } catch (e) { error = e instanceof Error ? e.message : 'Unable to restore item.'; }
     finally { working = false; }
   }
-  async function fetchDownload(item: DriveItem) {
+  async function fetchDownload(item: DriveItem, recordActivity = true) {
     const token = getToken();
     if (!token) { goto('/login'); throw new Error('You are not signed in.'); }
-    const response = await fetch(`${API_BASE}/api/v1/nodes/${item.node_id}/download`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    if (!recordActivity) headers['X-ClusterStor-Suppress-Download-Event'] = '1';
+    const response = await fetch(`${API_BASE}/api/v1/nodes/${item.node_id}/download`, { headers });
     if (!response.ok) throw new Error(`Unable to download ${item.name}.`);
     return response.blob();
   }
@@ -429,10 +429,22 @@
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
       for (const entry of files) {
-        zip.file(entry.path, await fetchDownload(entry.item));
+        zip.file(entry.path, await fetchDownload(entry.item, false));
       }
       const blob = await zip.generateAsync({ type: 'blob' });
-      await saveBlob(blob, currentFolder ? `${currentFolder.name}-download.zip` : 'ClusterStor-download.zip');
+      const archiveName = chosen.length === 1 && chosen[0].node_type === 'folder'
+        ? chosen[0].name + '.zip'
+        : currentFolder ? currentFolder.name + '-download.zip' : 'ClusterStor-download.zip';
+      await saveBlob(blob, archiveName);
+      await api('/api/v1/downloads/record', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: archiveName,
+          provider: 'google_drive',
+          size_bytes: blob.size,
+          destination: 'Web browser'
+        })
+      });
       success = `Downloaded ${files.length} file${files.length === 1 ? '' : 's'}.`;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unable to download selected items.';
