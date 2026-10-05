@@ -30,6 +30,7 @@
     });
   $: breadcrumb = buildBreadcrumb(currentFolder);
   $: allVisibleSelected = visibleItems.length > 0 && visibleItems.every((item) => selected.has(item.node_id));
+  $: treeRows = folderTreeRows(items, rootProviderID, expandedFolders);
 
   async function load() {
     error = '';
@@ -252,16 +253,22 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  function folderTreeRows() {
+  function folderTreeRows(allItems: DriveItem[], managedRootID: string, expanded: Set<string>) {
     const rows: Array<{ folder: DriveItem; depth: number; hasChildren: boolean }> = [];
+    if (!managedRootID) return rows;
+    const childrenOf = (parentProviderID: string) =>
+      allItems
+        .filter((item) => item.node_type === 'folder' && item.parent_item_id === parentProviderID && isInsideClusterStor(item))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
     const walk = (parentProviderID: string, depth: number) => {
-      for (const folder of managedFolderChildren(parentProviderID)) {
-        const children = managedFolderChildren(folder.provider_item_id);
+      for (const folder of childrenOf(parentProviderID)) {
+        const children = childrenOf(folder.provider_item_id);
         rows.push({ folder, depth, hasChildren: children.length > 0 });
-        if (expandedFolders.has(folder.node_id)) walk(folder.provider_item_id, depth + 1);
+        if (expanded.has(folder.node_id)) walk(folder.provider_item_id, depth + 1);
       }
     };
-    walk(rootProviderID, 0);
+    walk(managedRootID, 0);
     return rows;
   }
 
@@ -594,7 +601,7 @@
           >
             <span class="tree-toggle-spacer"></span><span>📁</span><span>ClusterStor</span>
           </button>
-          {#each folderTreeRows() as row}
+          {#each treeRows as row}
             <div class="tree-line" style={`--tree-depth:${row.depth}`}>
               {#if row.hasChildren}
                 <button class="tree-toggle" aria-label={expandedFolders.has(row.folder.node_id) ? `Collapse ${row.folder.name}` : `Expand ${row.folder.name}`} on:click={() => toggleTreeFolder(row.folder)}>
