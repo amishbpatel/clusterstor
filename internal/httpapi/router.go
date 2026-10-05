@@ -62,6 +62,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/uploads", requireUser(authService, http.HandlerFunc(handleBeginGoogleUpload(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
 	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService))))
+	mux.Handle("DELETE /api/v1/nodes/{id}", requireUser(authService, http.HandlerFunc(handleDeleteNode(providerService))))
 	mux.Handle("GET /api/v1/events", requireUser(authService, http.HandlerFunc(handleAccountEvents(eventService))))
 	mux.Handle("POST /api/v1/events/socket-ticket", requireUser(authService, http.HandlerFunc(handleEventSocketTicket(eventService))))
 	mux.HandleFunc("GET /api/v1/events/socket", handleEventSocket(eventService, eventBroker))
@@ -407,6 +408,30 @@ func handleFinalizeGoogleUpload(service *providers.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to finalize google drive upload")
 		default:
 			writeJSON(w, http.StatusCreated, result)
+		}
+	}
+}
+
+
+func handleDeleteNode(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		deleted, err := service.DeleteGoogleNode(r.Context(), user.ID, r.PathValue("id"))
+		switch {
+		case errors.Is(err, providers.ErrDeleteNotFound):
+			writeError(w, http.StatusNotFound, "delete_not_found", "file or folder was not found")
+		case errors.Is(err, providers.ErrInvalidProviderParent):
+			writeError(w, http.StatusBadRequest, "invalid_delete_target", "the ClusterStor provider root cannot be deleted")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w, http.StatusNotFound, "provider_not_connected", "google drive is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w, http.StatusBadGateway, "oauth_refresh_failed", "google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to delete google drive item")
+		default:
+			writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 		}
 	}
 }
