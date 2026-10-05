@@ -271,3 +271,29 @@ html { scroll-behavior:smooth; }
 @media (max-width:640px) {
   .steps-grid { grid-template-columns:1fr; }
 }
+
+.peer-coming-soon {
+  margin-top: 46px;
+  padding-top: 30px;
+  border-top: 1px solid rgba(110,220,255,.18);
+}
+.coming-soon-badge {
+  display:inline-flex;
+  align-items:center;
+  margin-left:10px;
+  padding:5px 9px;
+  border-radius:999px;
+  background:linear-gradient(100deg,#5b8cff,#51dcff);
+  color:#06101f !important;
+  font-size:.72rem;
+  font-weight:900;
+  letter-spacing:.08em;
+  vertical-align:middle;
+  box-shadow:0 0 28px rgba(81,220,255,.22);
+}
+.coming-soon-copy {
+  margin: 8px 0 16px;
+  color:#9fb4d5;
+  max-width:760px;
+  line-height:1.6;
+}
