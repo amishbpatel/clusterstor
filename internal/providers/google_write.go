@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const googleUploadFilesURL = "https://www.googleapis.com/upload/drive/v3/files"
@@ -227,5 +229,236 @@ func (s *Service) DeleteGoogleNode(ctx context.Context, userID, nodeID string) (
 		return 0, fmt.Errorf("record delete event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil { return 0, fmt.Errorf("commit delete: %w", err) }
+	return len(targets), nil
+}
+
+
+func (s *Service) RenameGoogleNode(ctx context.Context, userID, nodeID, name string) (DriveItem, error) {
+	nodeID = strings.TrimSpace(nodeID)
+	name = strings.TrimSpace(name)
+	if nodeID == "" || name == "" { return DriveItem{}, ErrDeleteNotFound }
+
+	accountID, token, err := s.googleCredential(ctx, userID)
+	if err != nil { return DriveItem{}, err }
+	token, err = s.ensureGoogleAccessToken(ctx, accountID, token)
+	if err != nil { return DriveItem{}, err }
+
+	var providerItemID, nodeType string
+	err = s.pool.QueryRow(ctx, `
+		SELECT pi.provider_item_id, n.node_type
+		FROM nodes n
+		JOIN provider_items pi ON pi.node_id=n.id AND pi.provider_account_id=$3::uuid
+		WHERE n.id=$1::uuid AND n.user_id=$2::uuid AND n.deleted_at IS NULL`,
+		nodeID, userID, accountID).Scan(&providerItemID, &nodeType)
+	if errors.Is(err, pgx.ErrNoRows) { return DriveItem{}, ErrDeleteNotFound }
+	if err != nil { return DriveItem{}, fmt.Errorf("resolve rename target: %w", err) }
+
+	payload, _ := json.Marshal(map[string]string{"name": name})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch,
+		googleFilesURL+"/"+url.PathEscape(providerItemID)+"?fields=id,name,mimeType,parents,size,modifiedTime&supportsAllDrives=true",
+		bytes.NewReader(payload))
+	if err != nil { return DriveItem{}, err }
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	resp, err := s.httpClient.Do(req)
+	if err != nil { return DriveItem{}, fmt.Errorf("rename google drive item: %w", err) }
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil { return DriveItem{}, err }
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return DriveItem{}, fmt.Errorf("rename google drive item: google returned %s", resp.Status)
+	}
+	var file googleFile
+	if err := json.Unmarshal(body, &file); err != nil { return DriveItem{}, fmt.Errorf("decode renamed google item: %w", err) }
+
+	items, err := s.upsertGoogleFiles(ctx, userID, accountID, []googleFile{file})
+	if err != nil { return DriveItem{}, err }
+	if len(items) != 1 { return DriveItem{}, errors.New("rename google drive item: mapping failed") }
+
+	eventPayload, _ := json.Marshal(map[string]any{"provider":"google_drive","name":name})
+	_, _ = s.pool.Exec(ctx,
+		"INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'node.renamed','node',$2::uuid,$3::jsonb)",
+		userID, nodeID, string(eventPayload))
+	_ = nodeType
+	return items[0], nil
+}
+
+func (s *Service) MoveGoogleNode(ctx context.Context, userID, nodeID string, parentNodeID *string) (DriveItem, error) {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" { return DriveItem{}, ErrDeleteNotFound }
+
+	accountID, token, err := s.googleCredential(ctx, userID)
+	if err != nil { return DriveItem{}, err }
+	token, err = s.ensureGoogleAccessToken(ctx, accountID, token)
+	if err != nil { return DriveItem{}, err }
+
+	var providerItemID, currentParent, nodeType string
+	err = s.pool.QueryRow(ctx, `
+		SELECT pi.provider_item_id, COALESCE(pi.provider_parent_item_id,''), n.node_type
+		FROM nodes n
+		JOIN provider_items pi ON pi.node_id=n.id AND pi.provider_account_id=$3::uuid
+		WHERE n.id=$1::uuid AND n.user_id=$2::uuid AND n.deleted_at IS NULL`,
+		nodeID, userID, accountID).Scan(&providerItemID, &currentParent, &nodeType)
+	if errors.Is(err, pgx.ErrNoRows) { return DriveItem{}, ErrDeleteNotFound }
+	if err != nil { return DriveItem{}, fmt.Errorf("resolve move target: %w", err) }
+
+	newParentProviderID, newParentNodeID, err := s.googleManagedParent(ctx, userID, accountID, parentNodeID)
+	if err != nil { return DriveItem{}, err }
+
+	if newParentNodeID != nil {
+		if *newParentNodeID == nodeID { return DriveItem{}, ErrInvalidProviderParent }
+		if nodeType == "folder" {
+			var inside bool
+			err := s.pool.QueryRow(ctx, `
+				WITH RECURSIVE descendants AS (
+					SELECT id FROM nodes WHERE id=$1::uuid AND user_id=$2::uuid
+					UNION ALL
+					SELECT n.id FROM nodes n JOIN descendants d ON n.parent_id=d.id
+					WHERE n.user_id=$2::uuid AND n.deleted_at IS NULL
+				)
+				SELECT EXISTS(SELECT 1 FROM descendants WHERE id=$3::uuid)`,
+				nodeID, userID, *newParentNodeID).Scan(&inside)
+			if err != nil { return DriveItem{}, fmt.Errorf("validate move destination: %w", err) }
+			if inside { return DriveItem{}, ErrInvalidProviderParent }
+		}
+	}
+
+	q := url.Values{}
+	q.Set("addParents", newParentProviderID)
+	if currentParent != "" { q.Set("removeParents", currentParent) }
+	q.Set("fields", "id,name,mimeType,parents,size,modifiedTime")
+	q.Set("supportsAllDrives", "true")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch,
+		googleFilesURL+"/"+url.PathEscape(providerItemID)+"?"+q.Encode(),
+		bytes.NewBufferString("{}"))
+	if err != nil { return DriveItem{}, err }
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	resp, err := s.httpClient.Do(req)
+	if err != nil { return DriveItem{}, fmt.Errorf("move google drive item: %w", err) }
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil { return DriveItem{}, err }
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return DriveItem{}, fmt.Errorf("move google drive item: google returned %s", resp.Status)
+	}
+	var file googleFile
+	if err := json.Unmarshal(body, &file); err != nil { return DriveItem{}, fmt.Errorf("decode moved google item: %w", err) }
+
+	items, err := s.upsertGoogleFiles(ctx, userID, accountID, []googleFile{file})
+	if err != nil { return DriveItem{}, err }
+	if len(items) != 1 { return DriveItem{}, errors.New("move google drive item: mapping failed") }
+
+	if newParentNodeID == nil {
+		_, err = s.pool.Exec(ctx, "UPDATE nodes SET parent_id=NULL,updated_at=now() WHERE id=$1::uuid AND user_id=$2::uuid", nodeID, userID)
+	} else {
+		_, err = s.pool.Exec(ctx, "UPDATE nodes SET parent_id=$1::uuid,updated_at=now() WHERE id=$2::uuid AND user_id=$3::uuid", *newParentNodeID, nodeID, userID)
+	}
+	if err != nil { return DriveItem{}, fmt.Errorf("update moved node parent: %w", err) }
+
+	eventPayload, _ := json.Marshal(map[string]any{"provider":"google_drive","parent_provider_item_id":newParentProviderID})
+	_, _ = s.pool.Exec(ctx,
+		"INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'node.moved','node',$2::uuid,$3::jsonb)",
+		userID, nodeID, string(eventPayload))
+	return items[0], nil
+}
+
+func (s *Service) ListGoogleTrash(ctx context.Context, userID string) ([]DriveItem, error) {
+	accountID, _, err := s.googleCredential(ctx, userID)
+	if err != nil { return nil, err }
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT n.id::text, pi.provider_item_id, pi.provider_parent_item_id,
+		       n.name, n.node_type, COALESCE(pi.mime_type,''), pi.size_bytes, pi.modified_at
+		FROM nodes n
+		JOIN provider_items pi ON pi.node_id=n.id AND pi.provider_account_id=$2::uuid
+		LEFT JOIN nodes parent ON parent.id=n.parent_id
+		WHERE n.user_id=$1::uuid
+		  AND n.deleted_at IS NOT NULL
+		  AND (n.parent_id IS NULL OR parent.deleted_at IS NULL)
+		ORDER BY n.deleted_at DESC, n.name`, userID, accountID)
+	if err != nil { return nil, fmt.Errorf("list trash: %w", err) }
+	defer rows.Close()
+
+	items := make([]DriveItem, 0)
+	for rows.Next() {
+		var item DriveItem
+		item.Provider = "google_drive"
+		if err := rows.Scan(&item.NodeID, &item.ProviderItemID, &item.ParentItemID, &item.Name, &item.NodeType, &item.MIMEType, &item.SizeBytes, &item.ModifiedAt); err != nil {
+			return nil, fmt.Errorf("scan trash item: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil { return nil, err }
+	return items, nil
+}
+
+func (s *Service) RestoreGoogleNode(ctx context.Context, userID, nodeID string) (int, error) {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" { return 0, ErrDeleteNotFound }
+
+	accountID, token, err := s.googleCredential(ctx, userID)
+	if err != nil { return 0, err }
+	token, err = s.ensureGoogleAccessToken(ctx, accountID, token)
+	if err != nil { return 0, err }
+
+	rows, err := s.pool.Query(ctx, `
+		WITH RECURSIVE subtree AS (
+			SELECT n.id, pi.provider_item_id, 0 AS depth
+			FROM nodes n
+			JOIN provider_items pi ON pi.node_id=n.id AND pi.provider_account_id=$3::uuid
+			WHERE n.id=$1::uuid AND n.user_id=$2::uuid AND n.deleted_at IS NOT NULL
+			UNION ALL
+			SELECT child.id, child_pi.provider_item_id, subtree.depth + 1
+			FROM subtree
+			JOIN nodes child ON child.parent_id=subtree.id
+			JOIN provider_items child_pi ON child_pi.node_id=child.id AND child_pi.provider_account_id=$3::uuid
+			WHERE child.user_id=$2::uuid AND child.deleted_at IS NOT NULL
+		)
+		SELECT id::text, provider_item_id, depth FROM subtree ORDER BY depth ASC`,
+		nodeID, userID, accountID)
+	if err != nil { return 0, fmt.Errorf("load restore subtree: %w", err) }
+	defer rows.Close()
+
+	targets := make([]deleteTarget, 0)
+	for rows.Next() {
+		var target deleteTarget
+		if err := rows.Scan(&target.NodeID, &target.ProviderItemID, &target.Depth); err != nil { return 0, err }
+		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil { return 0, err }
+	if len(targets) == 0 { return 0, ErrDeleteNotFound }
+
+	for _, target := range targets {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPatch,
+			googleFilesURL+"/"+url.PathEscape(target.ProviderItemID)+"?supportsAllDrives=true",
+			bytes.NewBufferString(`{"trashed":false}`))
+		if err != nil { return 0, err }
+		req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := s.httpClient.Do(req)
+		if err != nil { return 0, fmt.Errorf("restore google drive item: %w", err) }
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return 0, fmt.Errorf("restore google drive item: google returned %s", resp.Status)
+		}
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil { return 0, err }
+	defer tx.Rollback(ctx)
+	for _, target := range targets {
+		if _, err := tx.Exec(ctx, "UPDATE nodes SET state='active',deleted_at=NULL,updated_at=now() WHERE id=$1::uuid AND user_id=$2::uuid", target.NodeID, userID); err != nil {
+			return 0, err
+		}
+	}
+	eventPayload, _ := json.Marshal(map[string]any{"provider":"google_drive","restored_count":len(targets)})
+	_, _ = tx.Exec(ctx,
+		"INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'node.restored','node',$2::uuid,$3::jsonb)",
+		userID, nodeID, string(eventPayload))
+	if err := tx.Commit(ctx); err != nil { return 0, err }
 	return len(targets), nil
 }
