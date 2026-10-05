@@ -209,6 +209,67 @@
     }
   }
 
+  async function deleteItem(item: DriveItem) {
+    const label = item.node_type === 'folder'
+      ? `Delete folder "${item.name}" and everything inside it? It will be moved to Google Drive trash.`
+      : `Delete "${item.name}"? It will be moved to Google Drive trash.`;
+    if (!window.confirm(label)) return;
+
+    working = true;
+    error = ''; success = '';
+    try {
+      await api<{ deleted: number }>(`/api/v1/nodes/${item.node_id}`, { method: 'DELETE' });
+      selected.delete(item.node_id);
+      selected = new Set(selected);
+      success = item.node_type === 'folder' ? 'Folder deleted.' : 'File deleted.';
+      await load();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to delete item.';
+    } finally {
+      working = false;
+    }
+  }
+
+  function topLevelSelectedItems() {
+    const chosen = items.filter((item) => selected.has(item.node_id));
+    const chosenProviderIDs = new Set(chosen.map((item) => item.provider_item_id));
+    return chosen.filter((item) => {
+      let parent = item.parent_item_id;
+      const seen = new Set<string>();
+      while (parent && !seen.has(parent)) {
+        if (chosenProviderIDs.has(parent)) return false;
+        seen.add(parent);
+        const parentItem = items.find((candidate) => candidate.provider_item_id === parent);
+        parent = parentItem?.parent_item_id || null;
+      }
+      return true;
+    });
+  }
+
+  async function deleteSelected() {
+    const chosen = topLevelSelectedItems();
+    if (chosen.length === 0) return;
+    const folderCount = chosen.filter((item) => item.node_type === 'folder').length;
+    const message = folderCount > 0
+      ? `Delete ${chosen.length} selected item${chosen.length === 1 ? '' : 's'}? Selected folders and all contents will be moved to Google Drive trash.`
+      : `Delete ${chosen.length} selected file${chosen.length === 1 ? '' : 's'}? They will be moved to Google Drive trash.`;
+    if (!window.confirm(message)) return;
+
+    working = true;
+    error = ''; success = '';
+    try {
+      for (const item of chosen) {
+        await api<{ deleted: number }>(`/api/v1/nodes/${item.node_id}`, { method: 'DELETE' });
+      }
+      selected = new Set();
+      success = `Deleted ${chosen.length} selected item${chosen.length === 1 ? '' : 's'}.`;
+      await load();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to delete selected items.';
+    } finally {
+      working = false;
+    }
+  }
   onMount(() => {
     if (!getToken()) { goto('/login'); return; }
     load();
