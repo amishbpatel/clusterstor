@@ -421,7 +421,8 @@
     </div>
     <div class="actions">
       <button class="btn" on:click={createFolder} disabled={working}>New folder</button>
-      <button class="btn primary" on:click={chooseUpload} disabled={working}>Upload file</button>
+      <button class="btn primary" on:click={chooseUpload} disabled={working || trashMode}>Upload files</button>
+      <button class="btn ghost" on:click={trashMode ? showFiles : showTrash} disabled={working}>{trashMode ? 'My Files' : 'Trash'}</button>
       <input bind:this={fileInput} type="file" multiple style="display:none" on:change={uploadSelected} />
     </div>
   </div>
@@ -429,19 +430,34 @@
   {#if error}<div class="error" style="margin-bottom:16px">{error}</div>{/if}
   {#if success}<div class="success" style="margin-bottom:16px">{success}</div>{/if}
 
-  <section class="card">
+  {#if uploadLabel}
+    <div class="upload-status">
+      <div><span>{uploadLabel}</span><strong>{uploadProgress}%</strong></div>
+      <progress max="100" value={uploadProgress}></progress>
+    </div>
+  {/if}
+
+  <section class:drag-active={dragActive} class="card file-drop-zone" on:dragover={handleDragOver} on:dragleave={handleDragLeave} on:drop={handleDrop}>
     <div class="toolbar">
       <div class="file-breadcrumb" aria-label="Folder path">
-        <button class="crumb" on:click={goRoot}>ClusterStor</button>
-        {#each breadcrumb as folder}
-          <span class="crumb-separator">/</span>
-          <button class="crumb" on:click={() => openFolder(folder)}>📁 {folder.name}</button>
-        {/each}
+        {#if trashMode}
+          <strong>Trash</strong>
+        {:else}
+          <button class="crumb" on:click={goRoot}>ClusterStor</button>
+          {#each breadcrumb as folder}
+            <span class="crumb-separator">/</span>
+            <button class="crumb" on:click={() => openFolder(folder)}>📁 {folder.name}</button>
+          {/each}
+        {/if}
       </div>
       <div class="actions">
-        <button class="btn" on:click={downloadSelected} disabled={working || selected.size === 0}>Download selected{selected.size ? ` (${selected.size})` : ``}</button>
-        <button class="btn danger" on:click={deleteSelected} disabled={working || selected.size === 0}>Delete selected</button>
-        <button class="btn ghost" on:click={load} disabled={loading || working}>Refresh</button>
+        {#if !trashMode}
+          <button class="btn" on:click={downloadSelected} disabled={working || selected.size === 0}>Download selected{selected.size ? ` (${selected.size})` : ``}</button>
+          <button class="btn danger" on:click={deleteSelected} disabled={working || selected.size === 0}>Delete selected</button>
+          <button class="btn ghost" on:click={load} disabled={loading || working}>Refresh</button>
+        {:else}
+          <button class="btn ghost" on:click={showTrash} disabled={working}>Refresh trash</button>
+        {/if}
       </div>
     </div>
 
@@ -449,33 +465,44 @@
       <div class="empty">Loading files…</div>
     {:else if visibleItems.length === 0}
       <div class="empty">
-        <strong>This folder is empty.</strong>
-        <p>Upload a file or create a folder to get started.</p>
+        <strong>{trashMode ? 'Trash is empty.' : 'This folder is empty.'}</strong>
+        {#if !trashMode}<p>Upload files, drop them here, or create a folder to get started.</p>{/if}
       </div>
     {:else}
       <div style="overflow:auto">
         <table class="table">
-          <thead><tr><th class="check-col"><input type="checkbox" aria-label="Select all visible items" checked={allVisibleSelected} on:change={toggleAllVisible} /></th><th>Name</th><th>Type</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+          <thead><tr><th class="check-col"><input type="checkbox" aria-label="Select all visible items" checked={allVisibleSelected} on:change={toggleAllVisible} /></th><th>Name</th><th>Source</th><th>Type</th><th>Size</th><th>Modified</th><th></th></tr></thead>
           <tbody>
             {#each visibleItems as item}
               <tr>
                 <td class="check-col"><input type="checkbox" aria-label={`Select ${item.name}`} checked={selected.has(item.node_id)} on:change={() => toggleSelected(item)} /></td>
                 <td>
                   {#if item.node_type === 'folder'}
-                    <button class="btn ghost" style="padding:4px 0" on:click={() => openFolder(item)}>📁 {item.name}</button>
+                    {#if trashMode}
+                      📁 {item.name}
+                    {:else}
+                      <button class="btn ghost" style="padding:4px 0" on:click={() => openFolder(item)}>📁 {item.name}</button>
+                    {/if}
                   {:else}
                     📄 {item.name}
                   {/if}
                 </td>
+                <td><span class="source-pill">{sourceLabel(item.provider)}</span></td>
                 <td>{item.node_type}</td>
                 <td>{item.node_type === 'folder' ? '—' : formatBytes(item.size_bytes)}</td>
                 <td>{item.modified_at ? new Date(item.modified_at).toLocaleString() : '—'}</td>
                 <td>
                   <div class="actions">
-                    {#if item.node_type === 'file'}
-                      <button class="btn" on:click={() => download(item)}>Download</button>
+                    {#if trashMode}
+                      <button class="btn primary" on:click={() => restoreItem(item)} disabled={working}>Restore</button>
+                    {:else}
+                      {#if item.node_type === 'file'}
+                        <button class="btn" on:click={() => download(item)}>Download</button>
+                      {/if}
+                      <button class="btn ghost" on:click={() => renameItem(item)} disabled={working}>Rename</button>
+                      <button class="btn ghost" on:click={() => moveItem(item)} disabled={working}>Move</button>
+                      <button class="btn danger" on:click={() => deleteItem(item)} disabled={working}>Delete</button>
                     {/if}
-                    <button class="btn danger" on:click={() => deleteItem(item)} disabled={working}>Delete</button>
                   </div>
                 </td>
               </tr>
