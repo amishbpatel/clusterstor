@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -122,4 +123,109 @@ func (s *Service) googleManagedParent(ctx context.Context, userID, accountID str
 	if err != nil { return "", nil, fmt.Errorf("validate provider parent: %w", err) }
 	if !insideRoot { return "", nil, ErrInvalidProviderParent }
 	return providerItemID, &nodeID, nil
+}
+
+
+var ErrDeleteNotFound = errors.New("delete target not found")
+
+type deleteTarget struct {
+	NodeID string
+	ProviderItemID string
+	Depth int
+}
+
+func (s *Service) DeleteGoogleNode(ctx context.Context, userID, nodeID string) (int, error) {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" { return 0, ErrDeleteNotFound }
+
+	accountID, token, err := s.googleCredential(ctx, userID)
+	if err != nil { return 0, err }
+	token, err = s.ensureGoogleAccessToken(ctx, accountID, token)
+	if err != nil { return 0, err }
+
+	var rootID *string
+	if err := s.pool.QueryRow(ctx, "SELECT root_provider_item_id FROM provider_accounts WHERE id=$1::uuid", accountID).Scan(&rootID); err != nil {
+		return 0, fmt.Errorf("load provider root: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		WITH RECURSIVE subtree AS (
+			SELECT n.id, pi.provider_item_id, 0 AS depth
+			FROM nodes n
+			JOIN provider_items pi ON pi.node_id=n.id
+			WHERE n.id=$1::uuid
+			  AND n.user_id=$2::uuid
+			  AND pi.provider_account_id=$3::uuid
+			  AND n.deleted_at IS NULL
+			UNION ALL
+			SELECT child.id, child_pi.provider_item_id, subtree.depth + 1
+			FROM subtree
+			JOIN nodes child ON child.parent_id=subtree.id
+			JOIN provider_items child_pi
+			  ON child_pi.node_id=child.id
+			 AND child_pi.provider_account_id=$3::uuid
+			WHERE child.user_id=$2::uuid
+			  AND child.deleted_at IS NULL
+		)
+		SELECT id::text, provider_item_id, depth
+		FROM subtree
+		ORDER BY depth DESC`, nodeID, userID, accountID)
+	if err != nil { return 0, fmt.Errorf("load delete subtree: %w", err) }
+	defer rows.Close()
+
+	targets := make([]deleteTarget, 0)
+	for rows.Next() {
+		var target deleteTarget
+		if err := rows.Scan(&target.NodeID, &target.ProviderItemID, &target.Depth); err != nil {
+			return 0, fmt.Errorf("scan delete subtree: %w", err)
+		}
+		if rootID != nil && target.ProviderItemID == *rootID {
+			return 0, ErrInvalidProviderParent
+		}
+		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil { return 0, fmt.Errorf("iterate delete subtree: %w", err) }
+	if len(targets) == 0 { return 0, ErrDeleteNotFound }
+
+	for _, target := range targets {
+		payload := bytes.NewBufferString(`{"trashed":true}`)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPatch,
+			googleFilesURL+"/"+url.PathEscape(target.ProviderItemID)+"?supportsAllDrives=true",
+			payload)
+		if err != nil { return 0, err }
+		req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		resp, err := s.httpClient.Do(req)
+		if err != nil { return 0, fmt.Errorf("trash google drive item: %w", err) }
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return 0, fmt.Errorf("trash google drive item: google returned %s", resp.Status)
+		}
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil { return 0, fmt.Errorf("begin delete: %w", err) }
+	defer tx.Rollback(ctx)
+
+	for _, target := range targets {
+		if _, err := tx.Exec(ctx,
+			"UPDATE nodes SET state='deleted', deleted_at=now(), updated_at=now() WHERE id=$1::uuid AND user_id=$2::uuid",
+			target.NodeID, userID); err != nil {
+			return 0, fmt.Errorf("mark node deleted: %w", err)
+		}
+	}
+
+	eventPayload, _ := json.Marshal(map[string]any{
+		"provider":"google_drive",
+		"deleted_count":len(targets),
+	})
+	if _, err := tx.Exec(ctx,
+		"INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'node.deleted','node',$2::uuid,$3::jsonb)",
+		userID, nodeID, string(eventPayload)); err != nil {
+		return 0, fmt.Errorf("record delete event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil { return 0, fmt.Errorf("commit delete: %w", err) }
+	return len(targets), nil
 }
