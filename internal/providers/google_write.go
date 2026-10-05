@@ -462,3 +462,50 @@ func (s *Service) RestoreGoogleNode(ctx context.Context, userID, nodeID string) 
 	if err := tx.Commit(ctx); err != nil { return 0, err }
 	return len(targets), nil
 }
+
+
+func (s *Service) RecoverGoogleUpload(ctx context.Context, userID string, input UploadSessionInput) (FinalizedUpload, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" { return FinalizedUpload{}, errors.New("file name is required") }
+	if input.SizeBytes < 0 { return FinalizedUpload{}, errors.New("file size must not be negative") }
+
+	accountID, token, err := s.googleCredential(ctx, userID)
+	if err != nil { return FinalizedUpload{}, err }
+	token, err = s.ensureGoogleAccessToken(ctx, accountID, token)
+	if err != nil { return FinalizedUpload{}, err }
+	parentID, _, err := s.googleManagedParent(ctx, userID, accountID, input.ParentNodeID)
+	if err != nil { return FinalizedUpload{}, err }
+
+	q := url.Values{}
+	q.Set("q", fmt.Sprintf("'%s' in parents and name = '%s' and trashed = false",
+		strings.ReplaceAll(parentID, "'", "\\'"),
+		strings.ReplaceAll(name, "'", "\\'")))
+	q.Set("pageSize", "20")
+	q.Set("orderBy", "modifiedTime desc")
+	q.Set("fields", "files(id,name,mimeType,parents,size,modifiedTime)")
+	q.Set("supportsAllDrives", "true")
+	q.Set("includeItemsFromAllDrives", "true")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, googleFilesURL+"?"+q.Encode(), nil)
+	if err != nil { return FinalizedUpload{}, err }
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Accept", "application/json")
+	resp, err := s.httpClient.Do(req)
+	if err != nil { return FinalizedUpload{}, fmt.Errorf("recover google upload: %w", err) }
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil { return FinalizedUpload{}, fmt.Errorf("read google upload recovery: %w", err) }
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return FinalizedUpload{}, fmt.Errorf("recover google upload: google returned %s", resp.Status)
+	}
+	var page googleFilesResponse
+	if err := json.Unmarshal(body, &page); err != nil {
+		return FinalizedUpload{}, fmt.Errorf("decode google upload recovery: %w", err)
+	}
+	for _, file := range page.Files {
+		size, ok := parseOptionalInt64(file.Size)
+		if !ok || size != input.SizeBytes { continue }
+		return s.FinalizeGoogleUpload(ctx, userID, FinalizeUploadInput{ProviderItemID: file.ID})
+	}
+	return FinalizedUpload{}, ErrDownloadNotFound
+}
