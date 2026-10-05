@@ -73,3 +73,78 @@ func (s *Service) LatestSequence(ctx context.Context, userID string) (int64, err
 	}
 	return sequence, nil
 }
+
+
+type RecentFileActivity struct {
+	EventType string `json:"event_type"`
+	NodeID string `json:"node_id"`
+	Name string `json:"name"`
+	Provider string `json:"provider"`
+	SizeBytes int64 `json:"size_bytes"`
+	Destination *string `json:"destination,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type RecentDashboardActivity struct {
+	Uploads []RecentFileActivity `json:"uploads"`
+	Downloads []RecentFileActivity `json:"downloads"`
+}
+
+func (s *Service) RecordDownload(ctx context.Context, userID, nodeID, provider, name string, sizeBytes int64, destination string) error {
+	payload, err := json.Marshal(map[string]any{
+		"provider": provider,
+		"name": name,
+		"size_bytes": sizeBytes,
+		"destination": destination,
+	})
+	if err != nil { return fmt.Errorf("encode download event: %w", err) }
+	_, err = s.pool.Exec(ctx,
+		"INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'file.downloaded','node',$2::uuid,$3::jsonb)",
+		userID, nodeID, string(payload))
+	if err != nil { return fmt.Errorf("record download event: %w", err) }
+	return nil
+}
+
+func (s *Service) RecentDashboard(ctx context.Context, userID string, limit int) (RecentDashboardActivity, error) {
+	if limit <= 0 { limit = 5 }
+	if limit > 20 { limit = 20 }
+
+	query := `
+		SELECT e.event_type,
+		       e.resource_id::text,
+		       COALESCE(n.name, e.payload->>'name', 'Unknown file') AS name,
+		       COALESCE(e.payload->>'provider', pa.provider, '') AS provider,
+		       COALESCE((e.payload->>'size_bytes')::bigint, pi.size_bytes, 0) AS size_bytes,
+		       NULLIF(e.payload->>'destination','') AS destination,
+		       e.created_at
+		FROM account_events e
+		LEFT JOIN nodes n ON n.id=e.resource_id
+		LEFT JOIN provider_items pi ON pi.node_id=n.id
+		LEFT JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+		WHERE e.user_id=$1::uuid
+		  AND e.event_type=$2
+		ORDER BY e.sequence DESC
+		LIMIT $3`
+
+	load := func(eventType string) ([]RecentFileActivity, error) {
+		rows, err := s.pool.Query(ctx, query, userID, eventType, limit)
+		if err != nil { return nil, fmt.Errorf("list recent %s: %w", eventType, err) }
+		defer rows.Close()
+		result := make([]RecentFileActivity, 0, limit)
+		for rows.Next() {
+			var item RecentFileActivity
+			if err := rows.Scan(&item.EventType,&item.NodeID,&item.Name,&item.Provider,&item.SizeBytes,&item.Destination,&item.CreatedAt); err != nil {
+				return nil, fmt.Errorf("scan recent activity: %w", err)
+			}
+			result = append(result,item)
+		}
+		if err := rows.Err(); err != nil { return nil, fmt.Errorf("iterate recent activity: %w", err) }
+		return result,nil
+	}
+
+	uploads, err := load("file.version.created")
+	if err != nil { return RecentDashboardActivity{}, err }
+	downloads, err := load("file.downloaded")
+	if err != nil { return RecentDashboardActivity{}, err }
+	return RecentDashboardActivity{Uploads:uploads,Downloads:downloads},nil
+}
