@@ -26,8 +26,18 @@
     try {
       const root = await api<{ root_provider_item_id: string }>('/api/v1/providers/google_drive/root', { method: 'POST' });
       rootProviderID = root.root_provider_item_id;
-      const page = await api<{ items: DriveItem[]; next_page_token?: string }>('/api/v1/providers/google_drive/files?page_size=500');
-      items = page.items;
+      const allItems: DriveItem[] = [];
+      let pageToken = '';
+      do {
+        const params = new URLSearchParams({ page_size: '500' });
+        if (pageToken) params.set('page_token', pageToken);
+        const page = await api<{ items: DriveItem[]; next_page_token?: string }>(
+          `/api/v1/providers/google_drive/files?${params.toString()}`
+        );
+        allItems.push(...page.items);
+        pageToken = page.next_page_token || '';
+      } while (pageToken);
+      items = allItems;
     } catch (e) {
       if (!getToken()) { goto('/login'); return; }
       error = e instanceof Error ? e.message : 'Unable to load files.';
