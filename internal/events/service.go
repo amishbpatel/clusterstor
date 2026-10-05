@@ -105,13 +105,29 @@ func (s *Service) RecordDownload(ctx context.Context, userID, nodeID, provider, 
 	return nil
 }
 
+func (s *Service) RecordArchiveDownload(ctx context.Context, userID, provider, name string, sizeBytes int64, destination string) error {
+	payload, err := json.Marshal(map[string]any{
+		"provider": provider,
+		"name": name,
+		"size_bytes": sizeBytes,
+		"destination": destination,
+		"archive": true,
+	})
+	if err != nil { return fmt.Errorf("encode archive download event: %w", err) }
+	_, err = s.pool.Exec(ctx,
+		"INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'file.downloaded','archive',NULL,$2::jsonb)",
+		userID, string(payload))
+	if err != nil { return fmt.Errorf("record archive download event: %w", err) }
+	return nil
+}
+
 func (s *Service) RecentDashboard(ctx context.Context, userID string, limit int) (RecentDashboardActivity, error) {
 	if limit <= 0 { limit = 5 }
 	if limit > 20 { limit = 20 }
 
 	query := `
 		SELECT e.event_type,
-		       e.resource_id::text,
+		       COALESCE(e.resource_id::text,''),
 		       COALESCE(n.name, e.payload->>'name', 'Unknown file') AS name,
 		       COALESCE(e.payload->>'provider', pa.provider, '') AS provider,
 		       COALESCE((e.payload->>'size_bytes')::bigint, pi.size_bytes, 0) AS size_bytes,
