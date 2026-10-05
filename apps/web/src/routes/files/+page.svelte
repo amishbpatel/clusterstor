@@ -12,6 +12,7 @@
   let loading = true;
   let working = false;
   let fileInput: HTMLInputElement;
+  let selected = new Set<string>();
 
   $: currentProviderParent = currentFolder ? currentFolder.provider_item_id : rootProviderID;
   $: visibleItems = items
@@ -20,6 +21,8 @@
       if (a.node_type !== b.node_type) return a.node_type === 'folder' ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+  $: breadcrumb = buildBreadcrumb(currentFolder);
+  $: allVisibleSelected = visibleItems.length > 0 && visibleItems.every((item) => selected.has(item.node_id));
 
   async function load() {
     error = '';
@@ -48,9 +51,45 @@
 
   function openFolder(item: DriveItem) {
     currentFolder = item;
+    selected = new Set();
   }
 
-  function goRoot() { currentFolder = null; }
+  function goRoot() { currentFolder = null; selected = new Set(); }
+
+  function buildBreadcrumb(folder: DriveItem | null) {
+    if (!folder) return [] as DriveItem[];
+    const path: DriveItem[] = [];
+    let cursor: DriveItem | undefined = folder;
+    const seen = new Set<string>();
+    while (cursor && !seen.has(cursor.node_id)) {
+      path.unshift(cursor);
+      seen.add(cursor.node_id);
+      if (!cursor.parent_item_id || cursor.parent_item_id === rootProviderID) break;
+      cursor = items.find((item) => item.provider_item_id === cursor?.parent_item_id);
+    }
+    return path;
+  }
+
+  function toggleSelected(item: DriveItem) {
+    const next = new Set(selected);
+    if (next.has(item.node_id)) next.delete(item.node_id); else next.add(item.node_id);
+    selected = next;
+  }
+
+  function toggleAllVisible() {
+    const next = new Set(selected);
+    if (allVisibleSelected) visibleItems.forEach((item) => next.delete(item.node_id));
+    else visibleItems.forEach((item) => next.add(item.node_id));
+    selected = next;
+  }
+
+  function collectFiles(item: DriveItem, prefix = ''): Array<{ item: DriveItem; path: string }> {
+    if (item.node_type === 'file') return [{ item, path: prefix + item.name }];
+    const folderPrefix = prefix + item.name + '/';
+    return items
+      .filter((child) => child.parent_item_id === item.provider_item_id)
+      .flatMap((child) => collectFiles(child, folderPrefix));
+  }
 
   async function createFolder() {
     const name = window.prompt('Folder name');
