@@ -61,13 +61,14 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/folders", requireUser(authService, http.HandlerFunc(handleCreateGoogleFolder(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads", requireUser(authService, http.HandlerFunc(handleBeginGoogleUpload(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
-	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService))))
+	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService, eventService))))
 	mux.Handle("DELETE /api/v1/nodes/{id}", requireUser(authService, http.HandlerFunc(handleDeleteNode(providerService))))
 	mux.Handle("PATCH /api/v1/nodes/{id}/name", requireUser(authService, http.HandlerFunc(handleRenameNode(providerService))))
 	mux.Handle("POST /api/v1/nodes/{id}/move", requireUser(authService, http.HandlerFunc(handleMoveNode(providerService))))
 	mux.Handle("GET /api/v1/trash", requireUser(authService, http.HandlerFunc(handleTrash(providerService))))
 	mux.Handle("POST /api/v1/nodes/{id}/restore", requireUser(authService, http.HandlerFunc(handleRestoreNode(providerService))))
 	mux.Handle("GET /api/v1/events", requireUser(authService, http.HandlerFunc(handleAccountEvents(eventService))))
+	mux.Handle("GET /api/v1/dashboard/recent", requireUser(authService, http.HandlerFunc(handleRecentDashboard(eventService))))
 	mux.Handle("POST /api/v1/events/socket-ticket", requireUser(authService, http.HandlerFunc(handleEventSocketTicket(eventService))))
 	mux.HandleFunc("GET /api/v1/events/socket", handleEventSocket(eventService, eventBroker))
 	return mux
@@ -507,7 +508,7 @@ func handleDeleteNode(service *providers.Service) http.HandlerFunc {
 }
 
 
-func handleDownloadNode(service *providers.Service) http.HandlerFunc {
+func handleDownloadNode(service *providers.Service, eventService *events.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, _ := r.Context().Value(userContextKey{}).(auth.User)
 		stream, err := service.OpenGoogleDownload(r.Context(), user.ID, r.PathValue("id"), r.Header.Get("Range"))
@@ -528,8 +529,24 @@ func handleDownloadNode(service *providers.Service) http.HandlerFunc {
 			w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(stream.Name))
 			w.Header().Set("Cache-Control", "private, no-store")
 			w.WriteHeader(stream.Response.StatusCode)
-			_, _ = io.Copy(w, stream.Response.Body)
+			written, copyErr := io.Copy(w, stream.Response.Body)
+			if copyErr == nil && written > 0 && strings.TrimSpace(r.Header.Get("Range")) == "" {
+				_ = eventService.RecordDownload(r.Context(), user.ID, r.PathValue("id"), "google_drive", stream.Name, stream.SizeBytes, "Web browser")
+			}
 		}
+	}
+}
+
+
+func handleRecentDashboard(service *events.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		result, err := service.RecentDashboard(r.Context(), user.ID, 5)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to load recent file activity")
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
