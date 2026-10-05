@@ -2,6 +2,16 @@
 
 Status: approved product pricing as of 2026-10-04.
 
+## Provider adapters
+
+| Plan | Connected providers | Supported adapters | Price |
+| --- | ---: | --- | ---: |
+| Free | Up to 2 | Choose any 2 supported providers | $0 |
+| Unified Monthly | All 4 | Google Drive, Microsoft OneDrive, Dropbox, Box | $2.00/month |
+| Unified Annual | All 4 | Google Drive, Microsoft OneDrive, Dropbox, Box | $15.00/year |
+
+Provider-adapter access is separate from storage capacity. Connected-provider bytes remain in the user's provider account and do not count against purchased ClusterStor Cloud or Peer Storage capacity.
+
 ## Peer Storage
 
 | Plan | Included storage | Monthly price |
