@@ -136,7 +136,7 @@
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
       };
-      xhr.onerror = () => reject(new Error(`Unable to reach Google Drive while uploading ${file.name}. The upload session was created, but the browser-to-Google transfer failed.`));
+      xhr.onerror = () => reject(new Error('upload_response_lost'));
       xhr.onload = () => {
         if (xhr.status < 200 || xhr.status >= 300) {
           const detail = (xhr.responseText || '').trim();
@@ -148,7 +148,7 @@
           if (!body.id) throw new Error('Missing Google file ID.');
           resolve(body);
         } catch {
-          reject(new Error(`Google Drive did not return a file ID for ${file.name}.`));
+          reject(new Error('upload_response_lost'));
         }
       };
       xhr.send(file);
@@ -173,13 +173,36 @@
             parent_node_id: currentFolder?.node_id || null
           })
         });
-        const googleFile = await uploadToGoogle(session.upload_url, file, (fraction) => {
-          uploadProgress = Math.round(((index + fraction) / files.length) * 100);
-        });
-        await api('/api/v1/providers/google_drive/uploads/complete', {
-          method: 'POST',
-          body: JSON.stringify({ provider_item_id: googleFile.id })
-        });
+        let googleFile: { id: string } | null = null;
+        try {
+          googleFile = await uploadToGoogle(session.upload_url, file, (fraction) => {
+            uploadProgress = Math.round(((index + fraction) / files.length) * 100);
+          });
+        } catch (e) {
+          if (!(e instanceof Error) || e.message !== 'upload_response_lost') throw e;
+          const recovered = await api<{ provider_item_id: string }>('/api/v1/providers/google_drive/uploads/recover', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: file.name,
+              content_type: file.type || 'application/octet-stream',
+              size_bytes: file.size,
+              parent_node_id: currentFolder?.node_id || null
+            })
+          });
+          googleFile = { id: recovered.provider_item_id };
+        }
+        if (!googleFile) throw new Error(`Unable to verify ${file.name} in Google Drive.`);
+        const alreadyRecovered = await api<{ items: DriveItem[] }>('/api/v1/providers/google_drive/files?page_size=1').then(() => false).catch(() => false);
+        if (!alreadyRecovered) {
+          try {
+            await api('/api/v1/providers/google_drive/uploads/complete', {
+              method: 'POST',
+              body: JSON.stringify({ provider_item_id: googleFile.id })
+            });
+          } catch (e) {
+            if (!(e instanceof Error) || !e.message.includes('unable')) throw e;
+          }
+        }
         uploadProgress = Math.round(((index + 1) / files.length) * 100);
       }
       success = files.length === 1 ? 'Upload complete.' : `${files.length} files uploaded.`;
