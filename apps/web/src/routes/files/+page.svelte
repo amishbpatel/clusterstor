@@ -152,26 +152,60 @@
     }
   }
 
-  async function download(item: DriveItem) {
+  async function fetchDownload(item: DriveItem) {
     const token = getToken();
-    if (!token) { goto('/login'); return; }
+    if (!token) { goto('/login'); throw new Error('You are not signed in.'); }
+    const response = await fetch(`${API_BASE}/api/v1/nodes/${item.node_id}/download`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error(`Unable to download ${item.name}.`);
+    return response.blob();
+  }
+
+  async function saveBlob(blob: Blob, name: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function download(item: DriveItem) {
     error = '';
     try {
-      const response = await fetch(`${API_BASE}/api/v1/nodes/${item.node_id}/download`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!response.ok) throw new Error('Unable to download file.');
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = item.name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await saveBlob(await fetchDownload(item), item.name);
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unable to download file.';
+    }
+  }
+
+  async function downloadSelected() {
+    const chosen = items.filter((item) => selected.has(item.node_id));
+    if (chosen.length === 0) return;
+    working = true;
+    error = ''; success = '';
+    try {
+      const files = chosen.flatMap((item) => collectFiles(item));
+      if (files.length === 0) throw new Error('The selected folder does not contain downloadable files.');
+      if (chosen.length === 1 && chosen[0].node_type === 'file') {
+        await saveBlob(await fetchDownload(chosen[0]), chosen[0].name);
+        return;
+      }
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      for (const entry of files) {
+        zip.file(entry.path, await fetchDownload(entry.item));
+      }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      await saveBlob(blob, currentFolder ? `${currentFolder.name}-download.zip` : 'ClusterStor-download.zip');
+      success = `Downloaded ${files.length} file${files.length === 1 ? '' : 's'}.`;
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to download selected items.';
+    } finally {
+      working = false;
     }
   }
 
@@ -215,11 +249,17 @@
 
   <section class="card">
     <div class="toolbar">
-      <div class="actions">
-        <button class="btn ghost" on:click={goRoot} disabled={!currentFolder}>ClusterStor</button>
-        {#if currentFolder}<span class="muted">/</span><span>{currentFolder.name}</span>{/if}
+      <div class="file-breadcrumb" aria-label="Folder path">
+        <button class="crumb" on:click={goRoot}>ClusterStor</button>
+        {#each breadcrumb as folder}
+          <span class="crumb-separator">/</span>
+          <button class="crumb" on:click={() => openFolder(folder)}>📁 {folder.name}</button>
+        {/each}
       </div>
-      <button class="btn ghost" on:click={load} disabled={loading || working}>Refresh</button>
+      <div class="actions">
+        <button class="btn" on:click={downloadSelected} disabled={working || selected.size === 0}>Download selected{selected.size ? ` (${selected.size})` : ``}</button>
+        <button class="btn ghost" on:click={load} disabled={loading || working}>Refresh</button>
+      </div>
     </div>
 
     {#if loading}
@@ -232,10 +272,11 @@
     {:else}
       <div style="overflow:auto">
         <table class="table">
-          <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+          <thead><tr><th class="check-col"><input type="checkbox" aria-label="Select all visible items" checked={allVisibleSelected} on:change={toggleAllVisible} /></th><th>Name</th><th>Type</th><th>Size</th><th>Modified</th><th></th></tr></thead>
           <tbody>
             {#each visibleItems as item}
               <tr>
+                <td class="check-col"><input type="checkbox" aria-label={`Select ${item.name}`} checked={selected.has(item.node_id)} on:change={() => toggleSelected(item)} /></td>
                 <td>
                   {#if item.node_type === 'folder'}
                     <button class="btn ghost" style="padding:4px 0" on:click={() => openFolder(item)}>📁 {item.name}</button>
