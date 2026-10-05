@@ -13,10 +13,14 @@
   let working = false;
   let fileInput: HTMLInputElement;
   let selected = new Set<string>();
+  let trashItems: DriveItem[] = [];
+  let trashMode = false;
+  let uploadProgress = 0;
+  let uploadLabel = '';
+  let dragActive = false;
 
   $: currentProviderParent = currentFolder ? currentFolder.provider_item_id : rootProviderID;
-  $: visibleItems = items
-    .filter((item) => item.parent_item_id === currentProviderParent)
+  $: visibleItems = (trashMode ? trashItems : items.filter((item) => item.parent_item_id === currentProviderParent))
     .sort((a, b) => {
       if (a.node_type !== b.node_type) return a.node_type === 'folder' ? -1 : 1;
       return a.name.localeCompare(b.name);
@@ -110,48 +114,165 @@
 
   function chooseUpload() { fileInput?.click(); }
 
-  async function uploadSelected(event: Event) {
-    const input = event.currentTarget as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
+  function uploadToGoogle(uploadURL: string, file: File, onProgress: (fraction: number) => void) {
+    return new Promise<{ id: string }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', uploadURL);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
+      };
+      xhr.onerror = () => reject(new Error(`Unable to upload ${file.name}.`));
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300) { reject(new Error(`Google Drive upload failed for ${file.name}.`)); return; }
+        try {
+          const body = JSON.parse(xhr.responseText || '{}');
+          if (!body.id) throw new Error('Missing Google file ID.');
+          resolve(body);
+        } catch {
+          reject(new Error(`Google Drive did not return a file ID for ${file.name}.`));
+        }
+      };
+      xhr.send(file);
+    });
+  }
+
+  async function uploadFiles(files: File[]) {
+    if (files.length === 0) return;
     working = true;
     error = ''; success = '';
+    uploadProgress = 0;
     try {
-      const session = await api<{ upload_url: string }>('/api/v1/providers/google_drive/uploads', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: file.name,
-          content_type: file.type || 'application/octet-stream',
-          size_bytes: file.size,
-          parent_node_id: currentFolder?.node_id || null
-        })
-      });
-
-      const uploaded = await fetch(session.upload_url, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': file.type || 'application/octet-stream'
-        },
-        body: file
-      });
-      if (!uploaded.ok) throw new Error('Google Drive upload failed.');
-      const googleFile = await uploaded.json();
-      if (!googleFile.id) throw new Error('Google Drive did not return a file ID.');
-
-      await api('/api/v1/providers/google_drive/uploads/complete', {
-        method: 'POST',
-        body: JSON.stringify({ provider_item_id: googleFile.id })
-      });
-      success = 'Upload complete.';
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        uploadLabel = files.length === 1 ? `Uploading ${file.name}` : `Uploading ${index + 1} of ${files.length}: ${file.name}`;
+        const session = await api<{ upload_url: string }>('/api/v1/providers/google_drive/uploads', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: file.name,
+            content_type: file.type || 'application/octet-stream',
+            size_bytes: file.size,
+            parent_node_id: currentFolder?.node_id || null
+          })
+        });
+        const googleFile = await uploadToGoogle(session.upload_url, file, (fraction) => {
+          uploadProgress = Math.round(((index + fraction) / files.length) * 100);
+        });
+        await api('/api/v1/providers/google_drive/uploads/complete', {
+          method: 'POST',
+          body: JSON.stringify({ provider_item_id: googleFile.id })
+        });
+        uploadProgress = Math.round(((index + 1) / files.length) * 100);
+      }
+      success = files.length === 1 ? 'Upload complete.' : `${files.length} files uploaded.`;
       await load();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unable to upload file.';
+      error = e instanceof Error ? e.message : 'Unable to upload files.';
     } finally {
       working = false;
-      input.value = '';
+      uploadLabel = '';
+      uploadProgress = 0;
     }
   }
 
+  async function uploadSelected(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = Array.from(input.files || []);
+    await uploadFiles(files);
+    input.value = '';
+  }
+
+  function handleDragOver(event: DragEvent) {
+    event.preventDefault();
+    if (!trashMode) dragActive = true;
+  }
+
+  function handleDragLeave(event: DragEvent) {
+    event.preventDefault();
+    dragActive = false;
+  }
+
+  async function handleDrop(event: DragEvent) {
+    event.preventDefault();
+    dragActive = false;
+    if (trashMode) return;
+    await uploadFiles(Array.from(event.dataTransfer?.files || []));
+  }
+
+  function sourceLabel(provider: string) {
+    if (provider === 'google_drive') return 'Google Drive';
+    if (provider === 'onedrive') return 'OneDrive';
+    if (provider === 'dropbox') return 'Dropbox';
+    if (provider === 'box') return 'Box';
+    if (provider === 'clusterstor') return 'ClusterStor';
+    return provider || 'Unknown';
+  }
+
+  function collectDescendants(folder: DriveItem): DriveItem[] {
+    const children = items.filter((item) => item.parent_item_id === folder.provider_item_id);
+    return children.flatMap((child) => child.node_type === 'folder' ? [child, ...collectDescendants(child)] : [child]);
+  }
+
+  function folderPath(folder: DriveItem) {
+    return ['ClusterStor', ...buildBreadcrumb(folder).map((item) => item.name)].join(' / ');
+  }
+
+  async function renameItem(item: DriveItem) {
+    const name = window.prompt(`Rename ${item.node_type}`, item.name);
+    if (!name?.trim() || name.trim() === item.name) return;
+    working = true; error = ''; success = '';
+    try {
+      await api(`/api/v1/nodes/${item.node_id}/name`, { method: 'PATCH', body: JSON.stringify({ name: name.trim() }) });
+      success = 'Item renamed.';
+      await load();
+    } catch (e) { error = e instanceof Error ? e.message : 'Unable to rename item.'; }
+    finally { working = false; }
+  }
+
+  async function moveItem(item: DriveItem) {
+    const descendantIDs = new Set(collectDescendants(item).map((entry) => entry.node_id));
+    const folders = items.filter((candidate) => candidate.node_type === 'folder' && candidate.node_id !== item.node_id && !descendantIDs.has(candidate.node_id));
+    const choices = ['0: ClusterStor', ...folders.map((folder, index) => `${index + 1}: ${folderPath(folder)}`)];
+    const answer = window.prompt(`Move "${item.name}" to:\n\n${choices.join('\n')}\n\nEnter destination number:`);
+    if (answer == null) return;
+    const choice = Number.parseInt(answer, 10);
+    if (!Number.isInteger(choice) || choice < 0 || choice > folders.length) { error = 'Invalid destination.'; return; }
+    const parentNodeID = choice === 0 ? null : folders[choice - 1].node_id;
+    working = true; error = ''; success = '';
+    try {
+      await api(`/api/v1/nodes/${item.node_id}/move`, { method: 'POST', body: JSON.stringify({ parent_node_id: parentNodeID }) });
+      success = 'Item moved.';
+      await load();
+    } catch (e) { error = e instanceof Error ? e.message : 'Unable to move item.'; }
+    finally { working = false; }
+  }
+
+  async function showTrash() {
+    working = true; error = ''; success = '';
+    try {
+      const result = await api<{ items: DriveItem[] }>('/api/v1/trash');
+      trashItems = result.items;
+      trashMode = true;
+      currentFolder = null;
+      selected = new Set();
+    } catch (e) { error = e instanceof Error ? e.message : 'Unable to load trash.'; }
+    finally { working = false; }
+  }
+
+  function showFiles() {
+    trashMode = false;
+    selected = new Set();
+  }
+
+  async function restoreItem(item: DriveItem) {
+    working = true; error = ''; success = '';
+    try {
+      await api(`/api/v1/nodes/${item.node_id}/restore`, { method: 'POST' });
+      success = item.node_type === 'folder' ? 'Folder restored.' : 'File restored.';
+      await showTrash();
+    } catch (e) { error = e instanceof Error ? e.message : 'Unable to restore item.'; }
+    finally { working = false; }
+  }
   async function fetchDownload(item: DriveItem) {
     const token = getToken();
     if (!token) { goto('/login'); throw new Error('You are not signed in.'); }
@@ -301,7 +422,7 @@
     <div class="actions">
       <button class="btn" on:click={createFolder} disabled={working}>New folder</button>
       <button class="btn primary" on:click={chooseUpload} disabled={working}>Upload file</button>
-      <input bind:this={fileInput} type="file" style="display:none" on:change={uploadSelected} />
+      <input bind:this={fileInput} type="file" multiple style="display:none" on:change={uploadSelected} />
     </div>
   </div>
 
