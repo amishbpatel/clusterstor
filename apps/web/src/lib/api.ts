@@ -30,6 +30,7 @@ export type ProviderAccount = {
 
 export type DriveItem = {
   node_id: string;
+  provider: string;
   provider_item_id: string;
   parent_item_id?: string | null;
   name: string;
