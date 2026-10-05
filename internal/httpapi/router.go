@@ -63,6 +63,10 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
 	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService))))
 	mux.Handle("DELETE /api/v1/nodes/{id}", requireUser(authService, http.HandlerFunc(handleDeleteNode(providerService))))
+	mux.Handle("PATCH /api/v1/nodes/{id}/name", requireUser(authService, http.HandlerFunc(handleRenameNode(providerService))))
+	mux.Handle("POST /api/v1/nodes/{id}/move", requireUser(authService, http.HandlerFunc(handleMoveNode(providerService))))
+	mux.Handle("GET /api/v1/trash", requireUser(authService, http.HandlerFunc(handleTrash(providerService))))
+	mux.Handle("POST /api/v1/nodes/{id}/restore", requireUser(authService, http.HandlerFunc(handleRestoreNode(providerService))))
 	mux.Handle("GET /api/v1/events", requireUser(authService, http.HandlerFunc(handleAccountEvents(eventService))))
 	mux.Handle("POST /api/v1/events/socket-ticket", requireUser(authService, http.HandlerFunc(handleEventSocketTicket(eventService))))
 	mux.HandleFunc("GET /api/v1/events/socket", handleEventSocket(eventService, eventBroker))
@@ -408,6 +412,72 @@ func handleFinalizeGoogleUpload(service *providers.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to finalize google drive upload")
 		default:
 			writeJSON(w, http.StatusCreated, result)
+		}
+	}
+}
+ 
+
+func handleRenameNode(service *providers.Service) http.HandlerFunc {
+	type request struct { Name string `json:"name"` }
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		item, err := service.RenameGoogleNode(r.Context(), user.ID, r.PathValue("id"), body.Name)
+		switch {
+		case errors.Is(err, providers.ErrDeleteNotFound):
+			writeError(w, http.StatusNotFound, "node_not_found", "file or folder was not found")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to rename google drive item")
+		default:
+			writeJSON(w, http.StatusOK, item)
+		}
+	}
+}
+
+func handleMoveNode(service *providers.Service) http.HandlerFunc {
+	type request struct { ParentNodeID *string `json:"parent_node_id"` }
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		item, err := service.MoveGoogleNode(r.Context(), user.ID, r.PathValue("id"), body.ParentNodeID)
+		switch {
+		case errors.Is(err, providers.ErrDeleteNotFound):
+			writeError(w, http.StatusNotFound, "node_not_found", "file or folder was not found")
+		case errors.Is(err, providers.ErrInvalidProviderParent):
+			writeError(w, http.StatusBadRequest, "invalid_parent", "destination folder is not valid")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to move google drive item")
+		default:
+			writeJSON(w, http.StatusOK, item)
+		}
+	}
+}
+
+func handleTrash(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		items, err := service.ListGoogleTrash(r.Context(), user.ID)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to load trash")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	}
+}
+
+func handleRestoreNode(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		restored, err := service.RestoreGoogleNode(r.Context(), user.ID, r.PathValue("id"))
+		switch {
+		case errors.Is(err, providers.ErrDeleteNotFound):
+			writeError(w, http.StatusNotFound, "restore_not_found", "file or folder was not found in trash")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to restore google drive item")
+		default:
+			writeJSON(w, http.StatusOK, map[string]any{"restored": restored})
 		}
 	}
 }
