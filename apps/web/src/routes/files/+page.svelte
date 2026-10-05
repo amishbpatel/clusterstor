@@ -229,9 +229,25 @@
     finally { working = false; }
   }
 
+  function isInsideClusterStor(candidate: DriveItem) {
+    let parent = candidate.parent_item_id;
+    const seen = new Set<string>();
+    while (parent && !seen.has(parent)) {
+      if (parent === rootProviderID) return true;
+      seen.add(parent);
+      const parentItem = items.find((entry) => entry.provider_item_id === parent);
+      parent = parentItem?.parent_item_id || null;
+    }
+    return false;
+  }
   async function moveItem(item: DriveItem) {
     const descendantIDs = new Set(collectDescendants(item).map((entry) => entry.node_id));
-    const folders = items.filter((candidate) => candidate.node_type === 'folder' && candidate.node_id !== item.node_id && !descendantIDs.has(candidate.node_id));
+    const folders = items.filter((candidate) =>
+      candidate.node_type === 'folder' &&
+      candidate.node_id !== item.node_id &&
+      !descendantIDs.has(candidate.node_id) &&
+      isInsideClusterStor(candidate)
+    );
     const choices = ['0: ClusterStor', ...folders.map((folder, index) => `${index + 1}: ${folderPath(folder)}`)];
     const answer = window.prompt(`Move "${item.name}" to:\n\n${choices.join('\n')}\n\nEnter destination number:`);
     if (answer == null) return;
