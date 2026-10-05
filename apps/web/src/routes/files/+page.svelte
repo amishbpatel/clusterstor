@@ -18,6 +18,9 @@
   let uploadProgress = 0;
   let uploadLabel = '';
   let dragActive = false;
+  let expandedFolders = new Set<string>();
+  let internalDragNodeID = '';
+  let dropTargetNodeID = '';
 
   $: currentProviderParent = currentFolder ? currentFolder.provider_item_id : rootProviderID;
   $: visibleItems = (trashMode ? trashItems : items.filter((item) => item.parent_item_id === currentProviderParent))
@@ -45,6 +48,9 @@
         pageToken = page.next_page_token || '';
       } while (pageToken);
       items = allItems;
+      if (expandedFolders.size === 0) {
+        expandedFolders = new Set(allItems.filter((item) => item.node_type === 'folder' && isInsideClusterStor(item)).map((item) => item.node_id));
+      }
     } catch (e) {
       if (!getToken()) { goto('/login'); return; }
       error = e instanceof Error ? e.message : 'Unable to load files.';
@@ -239,6 +245,88 @@
       parent = parentItem?.parent_item_id || null;
     }
     return false;
+  }
+  function managedFolderChildren(parentProviderID: string) {
+    return items
+      .filter((item) => item.node_type === 'folder' && item.parent_item_id === parentProviderID && isInsideClusterStor(item))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function folderTreeRows() {
+    const rows: Array<{ folder: DriveItem; depth: number; hasChildren: boolean }> = [];
+    const walk = (parentProviderID: string, depth: number) => {
+      for (const folder of managedFolderChildren(parentProviderID)) {
+        const children = managedFolderChildren(folder.provider_item_id);
+        rows.push({ folder, depth, hasChildren: children.length > 0 });
+        if (expandedFolders.has(folder.node_id)) walk(folder.provider_item_id, depth + 1);
+      }
+    };
+    walk(rootProviderID, 0);
+    return rows;
+  }
+
+  function toggleTreeFolder(folder: DriveItem) {
+    const next = new Set(expandedFolders);
+    if (next.has(folder.node_id)) next.delete(folder.node_id); else next.add(folder.node_id);
+    expandedFolders = next;
+  }
+
+  function startInternalDrag(event: DragEvent, item: DriveItem) {
+    if (trashMode || working) return;
+    internalDragNodeID = item.node_id;
+    event.dataTransfer?.setData('application/x-clusterstor-node', item.node_id);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  function endInternalDrag() {
+    internalDragNodeID = '';
+    dropTargetNodeID = '';
+  }
+
+  function canDropOnFolder(item: DriveItem, folder: DriveItem | null) {
+    if (folder?.node_id === item.node_id) return false;
+    if (folder && collectDescendants(item).some((child) => child.node_id === folder.node_id)) return false;
+    const currentParentNode = item.parent_item_id === rootProviderID
+      ? null
+      : items.find((candidate) => candidate.provider_item_id === item.parent_item_id)?.node_id || null;
+    return (folder?.node_id || null) !== currentParentNode;
+  }
+
+  function dragOverMoveTarget(event: DragEvent, folder: DriveItem | null) {
+    if (!internalDragNodeID) return;
+    const item = items.find((candidate) => candidate.node_id === internalDragNodeID);
+    if (!item || !canDropOnFolder(item, folder)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dropTargetNodeID = folder?.node_id || 'root';
+    if (folder && !expandedFolders.has(folder.node_id)) {
+      const next = new Set(expandedFolders);
+      next.add(folder.node_id);
+      expandedFolders = next;
+    }
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+
+  async function dropMoveTarget(event: DragEvent, folder: DriveItem | null) {
+    if (!internalDragNodeID) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const item = items.find((candidate) => candidate.node_id === internalDragNodeID);
+    endInternalDrag();
+    if (!item || !canDropOnFolder(item, folder)) return;
+    working = true; error = ''; success = '';
+    try {
+      await api(`/api/v1/nodes/${item.node_id}/move`, {
+        method: 'POST',
+        body: JSON.stringify({ parent_node_id: folder?.node_id || null })
+      });
+      success = `Moved ${item.name} to ${folder ? folder.name : 'ClusterStor'}.`;
+      await load();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to move item.';
+    } finally {
+      working = false;
+    }
   }
   async function moveItem(item: DriveItem) {
     const descendantIDs = new Set(collectDescendants(item).map((entry) => entry.node_id));
@@ -492,6 +580,42 @@
       </div>
     </div>
 
+    <div class="file-browser-layout" class:without-tree={trashMode}>
+      {#if !trashMode}
+        <aside class="folder-tree" aria-label="Folder tree">
+          <div class="folder-tree-heading">Folders</div>
+          <button
+            class:active={currentFolder === null}
+            class:folder-drop-target={dropTargetNodeID === 'root'}
+            class="tree-row tree-root"
+            on:click={goRoot}
+            on:dragover={(event) => dragOverMoveTarget(event, null)}
+            on:drop={(event) => dropMoveTarget(event, null)}
+          >
+            <span class="tree-toggle-spacer"></span><span>📁</span><span>ClusterStor</span>
+          </button>
+          {#each folderTreeRows() as row}
+            <div class="tree-line" style={`--tree-depth:${row.depth}`}>
+              {#if row.hasChildren}
+                <button class="tree-toggle" aria-label={expandedFolders.has(row.folder.node_id) ? `Collapse ${row.folder.name}` : `Expand ${row.folder.name}`} on:click={() => toggleTreeFolder(row.folder)}>
+                  {expandedFolders.has(row.folder.node_id) ? '▾' : '▸'}
+                </button>
+              {:else}
+                <span class="tree-toggle-spacer"></span>
+              {/if}
+              <button
+                class:active={currentFolder?.node_id === row.folder.node_id}
+                class:folder-drop-target={dropTargetNodeID === row.folder.node_id}
+                class="tree-folder-name"
+                on:click={() => openFolder(row.folder)}
+                on:dragover={(event) => dragOverMoveTarget(event, row.folder)}
+                on:drop={(event) => dropMoveTarget(event, row.folder)}
+              >📁 {row.folder.name}</button>
+            </div>
+          {/each}
+        </aside>
+      {/if}
+      <div class="file-list-pane">
     {#if loading}
       <div class="empty">Loading files…</div>
     {:else if visibleItems.length === 0}
@@ -505,14 +629,14 @@
           <thead><tr><th class="check-col"><input type="checkbox" aria-label="Select all visible items" checked={allVisibleSelected} on:change={toggleAllVisible} /></th><th>Name</th><th>Source</th><th>Type</th><th>Size</th><th>Modified</th><th></th></tr></thead>
           <tbody>
             {#each visibleItems as item}
-              <tr>
+              <tr draggable={!trashMode} class:dragging={internalDragNodeID === item.node_id} on:dragstart={(event) => startInternalDrag(event, item)} on:dragend={endInternalDrag}>
                 <td class="check-col"><input type="checkbox" aria-label={`Select ${item.name}`} checked={selected.has(item.node_id)} on:change={() => toggleSelected(item)} /></td>
                 <td>
                   {#if item.node_type === 'folder'}
                     {#if trashMode}
                       📁 {item.name}
                     {:else}
-                      <button class="btn ghost" style="padding:4px 0" on:click={() => openFolder(item)}>📁 {item.name}</button>
+                      <button class:folder-drop-target={dropTargetNodeID === item.node_id} class="btn ghost folder-target" style="padding:4px 0" on:click={() => openFolder(item)} on:dragover={(event) => dragOverMoveTarget(event, item)} on:drop={(event) => dropMoveTarget(event, item)}>📁 {item.name}</button>
                     {/if}
                   {:else}
                     📄 {item.name}
@@ -542,5 +666,7 @@
         </table>
       </div>
     {/if}
+      </div>
+    </div>
   </section>
 </AppShell>
