@@ -318,3 +318,19 @@ html { scroll-behavior:smooth; }
 .crumb-separator { color:#637699; }
 .check-col { width:42px; text-align:center !important; }
 .check-col input { width:16px; height:16px; accent-color:#5b8cff; cursor:pointer; }
+
+/* Emphasize My Files table header */
+.table thead {
+  background: linear-gradient(90deg, rgba(39,67,116,.95), rgba(24,48,88,.95));
+}
+.table th {
+  color:#dbe8ff;
+  background:transparent;
+  border-bottom:1px solid rgba(106,220,255,.28);
+}
+.table thead th:first-child {
+  border-top-left-radius:10px;
+}
+.table thead th:last-child {
+  border-top-right-radius:10px;
+}
