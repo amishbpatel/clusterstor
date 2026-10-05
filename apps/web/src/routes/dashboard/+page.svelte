@@ -11,6 +11,31 @@
   let connecting = false;
 
   $: google = providers.find((p) => p.provider === 'google_drive');
+  $: storageProviders = providers.filter((p) => (p.quota_total_bytes || 0) > 0);
+  $: aggregateTotal = storageProviders.reduce((sum, p) => sum + (p.quota_total_bytes || 0), 0);
+  $: aggregateUsed = storageProviders.reduce((sum, p) => sum + (p.quota_used_bytes || 0), 0);
+  $: aggregateFree = Math.max(aggregateTotal - aggregateUsed, 0);
+
+  function providerLabel(provider: string) {
+    if (provider === 'google_drive') return 'Google Drive';
+    if (provider === 'onedrive') return 'OneDrive';
+    if (provider === 'dropbox') return 'Dropbox';
+    if (provider === 'box') return 'Box';
+    if (provider === 'clusterstor') return 'ClusterStor';
+    return provider;
+  }
+
+  function usedPercent(provider: ProviderAccount) {
+    const total = provider.quota_total_bytes || 0;
+    const used = provider.quota_used_bytes || 0;
+    if (total <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((used / total) * 100)));
+  }
+
+  function totalUsedPercent() {
+    if (aggregateTotal <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((aggregateUsed / aggregateTotal) * 100)));
+  }
 
   async function load() {
     error = '';
@@ -68,22 +93,74 @@
   {#if loading}
     <section class="card">Loading your ClusterStor account…</section>
   {:else}
-    <section class="grid">
-      <div class="card stat">
+    <section class="dashboard-summary">
+      <div class="card stat compact-stat">
         <span class="muted">Connected providers</span>
         <strong>{providers.length}</strong>
       </div>
-      <div class="card stat">
-        <span class="muted">Google Drive used</span>
-        <strong>{formatBytes(google?.quota_used_bytes)}</strong>
-      </div>
-      <div class="card stat">
-        <span class="muted">Google Drive free</span>
-        <strong>{formatBytes(google?.quota_free_bytes)}</strong>
-      </div>
+
+      <section class="card storage-overview">
+        <div class="storage-overview-head">
+          <div>
+            <div class="eyebrow">Storage overview</div>
+            <h2>Capacity across providers</h2>
+          </div>
+          {#if aggregateTotal > 0}
+            <div class="storage-total-copy">
+              <strong>{formatBytes(aggregateUsed)}</strong>
+              <span>of {formatBytes(aggregateTotal)} used</span>
+            </div>
+          {/if}
+        </div>
+
+        {#if aggregateTotal > 0}
+          <div class="capacity-block aggregate-capacity">
+            <div class="capacity-meta">
+              <span>All connected storage</span>
+              <strong>{totalUsedPercent()}%</strong>
+            </div>
+            <div class="capacity-track" aria-label={totalUsedPercent() + "% of connected storage used"}>
+              <span class="capacity-fill" style={"width:" + totalUsedPercent() + "%"}></span>
+            </div>
+            <div class="capacity-foot">
+              <span>{formatBytes(aggregateUsed)} used</span>
+              <span>{formatBytes(aggregateFree)} free</span>
+            </div>
+          </div>
+        {:else}
+          <p class="muted">Connect a storage provider to see capacity and usage here.</p>
+        {/if}
+
+        <div class="provider-capacity-list">
+          {#each storageProviders as provider}
+            <article class="provider-capacity-row">
+              <div class="provider-capacity-head">
+                <div>
+                  <strong>{providerLabel(provider.provider)}</strong>
+                  {#if provider.display_name}<span>{provider.display_name}</span>{/if}
+                </div>
+                <span class="pill">● Connected</span>
+              </div>
+              <div class="capacity-block">
+                <div class="capacity-meta">
+                  <span>{formatBytes(provider.quota_used_bytes)} of {formatBytes(provider.quota_total_bytes)}</span>
+                  <strong>{usedPercent(provider)}%</strong>
+                </div>
+                <div class="capacity-track" aria-label={usedPercent(provider) + "% of " + providerLabel(provider.provider) + " storage used"}>
+                  <span class="capacity-fill" style={"width:" + usedPercent(provider) + "%"}></span>
+                </div>
+                <div class="capacity-foot">
+                  <span>{formatBytes(provider.quota_used_bytes)} used</span>
+                  <span>{formatBytes(provider.quota_free_bytes)} free</span>
+                </div>
+              </div>
+            </article>
+          {/each}
+        </div>
+      </section>
     </section>
 
-    <section class="card" style="margin-top:16px">
+    <section class="card provider-connect-card">
       <div class="toolbar">
         <div>
           <div class="eyebrow">Storage providers</div>
@@ -98,7 +175,6 @@
         {/if}
       </div>
       {#if google}
-        <p class="muted">{google.display_name || 'Google Drive'} · {formatBytes(google.quota_used_bytes)} used of {formatBytes(google.quota_total_bytes)}</p>
         <p class="muted">ClusterStor-created files and folders are kept inside your dedicated <strong>ClusterStor</strong> folder in Google Drive.</p>
       {:else}
         <p class="muted">Connect Google Drive to browse files and begin using ClusterStor.</p>
