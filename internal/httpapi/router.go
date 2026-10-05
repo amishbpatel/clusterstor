@@ -61,6 +61,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/folders", requireUser(authService, http.HandlerFunc(handleCreateGoogleFolder(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads", requireUser(authService, http.HandlerFunc(handleBeginGoogleUpload(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
+	mux.Handle("POST /api/v1/providers/google_drive/uploads/recover", requireUser(authService, http.HandlerFunc(handleRecoverGoogleUpload(providerService))))
 	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService, eventService))))
 	mux.Handle("DELETE /api/v1/nodes/{id}", requireUser(authService, http.HandlerFunc(handleDeleteNode(providerService))))
 	mux.Handle("PATCH /api/v1/nodes/{id}/name", requireUser(authService, http.HandlerFunc(handleRenameNode(providerService))))
@@ -387,6 +388,36 @@ func handleBeginGoogleUpload(service *providers.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to start google drive upload")
 		default:
 			writeJSON(w, http.StatusCreated, session)
+		}
+	}
+}
+
+
+func handleRecoverGoogleUpload(service *providers.Service) http.HandlerFunc {
+	type request struct {
+		Name string `json:"name"`
+		ContentType string `json:"content_type"`
+		SizeBytes int64 `json:"size_bytes"`
+		ParentNodeID *string `json:"parent_node_id"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		result, err := service.RecoverGoogleUpload(r.Context(), user.ID, providers.UploadSessionInput{
+			Name: body.Name, ContentType: body.ContentType, SizeBytes: body.SizeBytes, ParentNodeID: body.ParentNodeID,
+		})
+		switch {
+		case errors.Is(err, providers.ErrDownloadNotFound):
+			writeError(w, http.StatusNotFound, "upload_not_found", "uploaded file could not be verified in Google Drive")
+		case errors.Is(err, providers.ErrInvalidProviderParent):
+			writeError(w, http.StatusBadRequest, "invalid_parent", "parent folder must be inside the ClusterStor provider root")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w, http.StatusNotFound, "provider_not_connected", "google drive is not connected")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to recover google drive upload")
+		default:
+			writeJSON(w, http.StatusOK, result)
 		}
 	}
 }
