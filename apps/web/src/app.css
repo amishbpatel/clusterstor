@@ -297,3 +297,24 @@ html { scroll-behavior:smooth; }
   max-width:760px;
   line-height:1.6;
 }
+
+.file-breadcrumb {
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:7px;
+  min-width:0;
+}
+.crumb {
+  border:0;
+  background:transparent;
+  color:#dce7fb;
+  padding:4px 0;
+  font:inherit;
+  font-weight:700;
+  cursor:pointer;
+}
+.crumb:hover { color:#6fdcff; }
+.crumb-separator { color:#637699; }
+.check-col { width:42px; text-align:center !important; }
+.check-col input { width:16px; height:16px; accent-color:#5b8cff; cursor:pointer; }
