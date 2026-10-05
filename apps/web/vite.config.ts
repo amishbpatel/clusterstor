@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: process.env.CLUSTERSTOR_API_DEV_TARGET || 'http://localhost:8080',
+        target: 'http://localhost:8080',
         changeOrigin: true,
         ws: true
       }
