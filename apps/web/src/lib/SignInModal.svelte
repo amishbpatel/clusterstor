@@ -32,8 +32,8 @@
 </script>
 
 {#if open}
-  <div class="modal-backdrop" role="presentation" on:click={close}>
-    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="signin-title" on:click|stopPropagation>
+  <div class="modal-backdrop" role="presentation">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="signin-title">
       <button class="modal-close" aria-label="Close sign in" on:click={close}>×</button>
       <div class="brand modal-brand"><span class="brand-mark">C</span><span>ClusterStor</span></div>
       <div class="eyebrow">Welcome back</div>
@@ -50,6 +50,6 @@
         <button class="btn primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form>
       <p class="muted modal-footer">New to ClusterStor? <a href="/signup">Create an account</a></p>
-    </section>
+    </div>
   </div>
 {/if}
