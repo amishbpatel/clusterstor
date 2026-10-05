@@ -69,6 +69,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/nodes/{id}/restore", requireUser(authService, http.HandlerFunc(handleRestoreNode(providerService))))
 	mux.Handle("GET /api/v1/events", requireUser(authService, http.HandlerFunc(handleAccountEvents(eventService))))
 	mux.Handle("GET /api/v1/dashboard/recent", requireUser(authService, http.HandlerFunc(handleRecentDashboard(eventService))))
+	mux.Handle("POST /api/v1/downloads/record", requireUser(authService, http.HandlerFunc(handleRecordDownload(eventService))))
 	mux.Handle("POST /api/v1/events/socket-ticket", requireUser(authService, http.HandlerFunc(handleEventSocketTicket(eventService))))
 	mux.HandleFunc("GET /api/v1/events/socket", handleEventSocket(eventService, eventBroker))
 	return mux
@@ -530,10 +531,38 @@ func handleDownloadNode(service *providers.Service, eventService *events.Service
 			w.Header().Set("Cache-Control", "private, no-store")
 			w.WriteHeader(stream.Response.StatusCode)
 			written, copyErr := io.Copy(w, stream.Response.Body)
-			if copyErr == nil && written > 0 && strings.TrimSpace(r.Header.Get("Range")) == "" {
+			if copyErr == nil && written > 0 && strings.TrimSpace(r.Header.Get("Range")) == "" && strings.TrimSpace(r.Header.Get("X-ClusterStor-Suppress-Download-Event")) == "" {
 				_ = eventService.RecordDownload(r.Context(), user.ID, r.PathValue("id"), "google_drive", stream.Name, stream.SizeBytes, "Web browser")
 			}
 		}
+	}
+}
+
+
+func handleRecordDownload(service *events.Service) http.HandlerFunc {
+	type request struct {
+		Name string `json:"name"`
+		Provider string `json:"provider"`
+		SizeBytes int64 `json:"size_bytes"`
+		Destination string `json:"destination"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w, r, &body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		name := strings.TrimSpace(body.Name)
+		provider := strings.TrimSpace(body.Provider)
+		destination := strings.TrimSpace(body.Destination)
+		if name == "" || provider == "" {
+			writeError(w, http.StatusBadRequest, "invalid_download_activity", "name and provider are required")
+			return
+		}
+		if destination == "" { destination = "Web browser" }
+		if err := service.RecordArchiveDownload(r.Context(), user.ID, provider, name, body.SizeBytes, destination); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to record download activity")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
