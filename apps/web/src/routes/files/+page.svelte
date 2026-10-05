@@ -391,6 +391,20 @@
       working = false;
     }
   }
+  async function restoreSelected() {
+    const chosen = trashItems.filter((item) => selected.has(item.node_id));
+    if (chosen.length === 0) return;
+    working = true; error = ''; success = '';
+    try {
+      for (const item of chosen) {
+        await api(`/api/v1/nodes/${item.node_id}/restore`, { method: 'POST' });
+      }
+      selected = new Set();
+      success = `Restored ${chosen.length} item${chosen.length === 1 ? '' : 's'}.`;
+      await showTrash();
+    } catch (e) { error = e instanceof Error ? e.message : 'Unable to restore selected items.'; }
+    finally { working = false; }
+  }
   onMount(() => {
     if (!getToken()) { goto('/login'); return; }
     load();
@@ -456,6 +470,7 @@
           <button class="btn danger" on:click={deleteSelected} disabled={working || selected.size === 0}>Delete selected</button>
           <button class="btn ghost" on:click={load} disabled={loading || working}>Refresh</button>
         {:else}
+          <button class="btn primary" on:click={restoreSelected} disabled={working || selected.size === 0}>Restore selected{selected.size ? ` (${selected.size})` : ``}</button>
           <button class="btn ghost" on:click={showTrash} disabled={working}>Refresh trash</button>
         {/if}
       </div>
