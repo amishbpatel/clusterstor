@@ -131,23 +131,28 @@
     </div>
 
     <div class="pricing-matrix-wrap">
-      <div class="pricing-label">Peer Storage <span>planned / opt-in</span></div>
-      <div class="pricing-matrix">
-        <div class="pricing-row pricing-head"><div>Plan</div><div>Capacity</div><div>Participation</div><div>Monthly</div></div>
-        <div class="pricing-row"><div>Peer 100</div><div>100 GB</div><div>Opt-in</div><div><strong>$2.99</strong></div></div>
-        <div class="pricing-row"><div>Peer 500</div><div>500 GB</div><div>Opt-in</div><div><strong>$5.99</strong></div></div>
-        <div class="pricing-row featured-row"><div>Peer 1TB</div><div>1 TB</div><div>Opt-in</div><div><strong>$8.99</strong></div></div>
-        <div class="pricing-row"><div>Peer 2TB</div><div>2 TB</div><div>Opt-in</div><div><strong>$15.99</strong></div></div>
-      </div>
-    </div>
-
-    <div class="pricing-matrix-wrap">
       <div class="pricing-label">ClusterStor Cloud <span>planned managed storage</span></div>
       <div class="pricing-matrix">
         <div class="pricing-row pricing-head"><div>Plan</div><div>Capacity</div><div>Storage type</div><div>Monthly</div></div>
         <div class="pricing-row"><div>Cloud 500</div><div>500 GB</div><div>Managed Cloud</div><div><strong>$8.99</strong></div></div>
         <div class="pricing-row featured-row"><div>Cloud 1TB</div><div>1 TB</div><div>Managed Cloud</div><div><strong>$14.99</strong></div></div>
         <div class="pricing-row"><div>Cloud 2TB</div><div>2 TB</div><div>Managed Cloud</div><div><strong>$24.99</strong></div></div>
+      </div>
+    </div>
+
+
+    <div class="pricing-matrix-wrap peer-coming-soon">
+      <div class="pricing-label">
+        Peer Storage
+        <span class="coming-soon-badge">COMING SOON</span>
+      </div>
+      <p class="coming-soon-copy">Peer Storage is planned for a future ClusterStor release. Participation will be completely opt-in and turned off by default.</p>
+      <div class="pricing-matrix">
+        <div class="pricing-row pricing-head"><div>Plan</div><div>Capacity</div><div>Participation</div><div>Monthly</div></div>
+        <div class="pricing-row"><div>Peer 100</div><div>100 GB</div><div>Opt-in</div><div><strong>$2.99</strong></div></div>
+        <div class="pricing-row"><div>Peer 500</div><div>500 GB</div><div>Opt-in</div><div><strong>$5.99</strong></div></div>
+        <div class="pricing-row featured-row"><div>Peer 1TB</div><div>1 TB</div><div>Opt-in</div><div><strong>$8.99</strong></div></div>
+        <div class="pricing-row"><div>Peer 2TB</div><div>2 TB</div><div>Opt-in</div><div><strong>$15.99</strong></div></div>
       </div>
     </div>
 
