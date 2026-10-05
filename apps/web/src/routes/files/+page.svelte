@@ -319,6 +319,7 @@
       </div>
       <div class="actions">
         <button class="btn" on:click={downloadSelected} disabled={working || selected.size === 0}>Download selected{selected.size ? ` (${selected.size})` : ``}</button>
+        <button class="btn danger" on:click={deleteSelected} disabled={working || selected.size === 0}>Delete selected</button>
         <button class="btn ghost" on:click={load} disabled={loading || working}>Refresh</button>
       </div>
     </div>
@@ -349,9 +350,12 @@
                 <td>{item.node_type === 'folder' ? '—' : formatBytes(item.size_bytes)}</td>
                 <td>{item.modified_at ? new Date(item.modified_at).toLocaleString() : '—'}</td>
                 <td>
-                  {#if item.node_type === 'file'}
-                    <button class="btn" on:click={() => download(item)}>Download</button>
-                  {/if}
+                  <div class="actions">
+                    {#if item.node_type === 'file'}
+                      <button class="btn" on:click={() => download(item)}>Download</button>
+                    {/if}
+                    <button class="btn danger" on:click={() => deleteItem(item)} disabled={working}>Delete</button>
+                  </div>
                 </td>
               </tr>
             {/each}
