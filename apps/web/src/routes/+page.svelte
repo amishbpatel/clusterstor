@@ -64,59 +64,98 @@
   <section id="features" class="marketing-section section-dark">
     <div class="section-heading">
       <div class="eyebrow">Features</div>
-      <h2>Your storage, without the switching.</h2>
-      <p>ClusterStor is designed around one simple idea: your files should feel like one system even when the storage underneath comes from different providers.</p>
+      <h2>Your clouds become one workspace.</h2>
+      <p>ClusterStor sits above the storage providers you already use. It gives you one account, one file experience, and one synchronization layer while leaving the underlying storage where you chose to keep it.</p>
     </div>
-    <div class="feature-grid">
-      <article class="feature-card"><span class="feature-icon">◎</span><h3>One file view</h3><p>Browse connected storage from a single ClusterStor workspace instead of jumping between provider tabs.</p></article>
-      <article class="feature-card"><span class="feature-icon">↟</span><h3>Direct uploads</h3><p>Send files directly to the connected provider while ClusterStor keeps the logical file record in sync.</p></article>
-      <article class="feature-card"><span class="feature-icon">↻</span><h3>Live changes</h3><p>Connected clients can catch up from a monotonic event sequence and react to changes in near real time.</p></article>
-      <article class="feature-card"><span class="feature-icon">⌂</span><h3>Clean provider folders</h3><p>ClusterStor-created content stays under a dedicated top-level ClusterStor folder in each provider.</p></article>
-      <article class="feature-card"><span class="feature-icon">◫</span><h3>Multi-device ready</h3><p>The architecture is built for desktop, web, and future mobile clients sharing the same account state.</p></article>
-      <article class="feature-card"><span class="feature-icon">◇</span><h3>Cloud + Peer roadmap</h3><p>Provider storage comes first, with ClusterStor Cloud and opt-in Peer Storage planned behind the same experience.</p></article>
+    <div class="feature-grid detailed">
+      <article class="feature-card"><span class="feature-icon">◎</span><h3>Unified file browser</h3><p>Open one workspace and browse provider-backed files without repeatedly switching between Google Drive, OneDrive, Dropbox, or Box interfaces.</p><small>Designed around provider-neutral logical file IDs so the app experience stays consistent even when the storage backend changes.</small></article>
+      <article class="feature-card"><span class="feature-icon">↟</span><h3>Direct provider uploads</h3><p>Large file bodies move directly to the connected provider whenever practical instead of being unnecessarily relayed through ClusterStor.</p><small>ClusterStor tracks the logical file, provider object, version, and sync state around the transfer.</small></article>
+      <article class="feature-card"><span class="feature-icon">↻</span><h3>Live multi-client updates</h3><p>Web and desktop clients can react quickly when another client creates a folder, uploads a file, or changes account state.</p><small>Clients resume from a monotonic event sequence so reconnecting does not require blindly rescanning everything.</small></article>
+      <article class="feature-card"><span class="feature-icon">⌂</span><h3>Dedicated provider folders</h3><p>ClusterStor-created content is kept under a dedicated top-level <strong>ClusterStor</strong> folder at each supported provider.</p><small>The provider folder ID is tracked so normal renaming does not break ClusterStor's identity mapping.</small></article>
+      <article class="feature-card"><span class="feature-icon">◫</span><h3>Built for multiple devices</h3><p>Your account is designed to span browser sessions and registered desktop devices rather than being tied to a single computer.</p><small>Device registration, revocation, live events, and account catch-up are already part of the backend foundation.</small></article>
+      <article class="feature-card"><span class="feature-icon">◇</span><h3>Provider, Cloud, and Peer paths</h3><p>Use connected-provider storage first, then add ClusterStor Cloud or opt-in Peer capacity when those storage products launch.</p><small>Peer contribution is explicitly opt-in and remains off unless the user chooses to participate.</small></article>
+      <article class="feature-card"><span class="feature-icon">▣</span><h3>Version-aware file model</h3><p>ClusterStor tracks logical files separately from their storage objects so versions and provider locations can evolve without changing the file's identity.</p><small>This creates a cleaner base for future version history, conflict handling, and provider migration.</small></article>
+      <article class="feature-card"><span class="feature-icon">⌁</span><h3>Provider abstraction</h3><p>Google Drive is the first complete integration, but the backend is being structured so OneDrive, Dropbox, and Box follow the same model.</p><small>The goal is to add providers without rebuilding the product around each vendor's API.</small></article>
+      <article class="feature-card"><span class="feature-icon">◈</span><h3>Security-conscious credentials</h3><p>Provider OAuth credentials are encrypted at rest and sensitive bearer credentials are kept out of public URLs and normal logs.</p><small>One-time socket tickets are used for browser real-time connections rather than exposing account session tokens in WebSocket URLs.</small></article>
+    </div>
+
+    <div class="how-it-works">
+      <div class="section-heading left compact">
+        <div class="eyebrow">How it works</div>
+        <h2>Connect once. Work from ClusterStor.</h2>
+      </div>
+      <div class="steps-grid">
+        <article><strong>01</strong><h3>Connect providers</h3><p>Start free with up to two supported cloud-provider adapters. ClusterStor obtains provider authorization without taking ownership of the underlying account.</p></article>
+        <article><strong>02</strong><h3>Browse one workspace</h3><p>ClusterStor maps provider items into a consistent file model and gives you one place to browse and work with the content.</p></article>
+        <article><strong>03</strong><h3>Create and upload</h3><p>New ClusterStor content is placed beneath the dedicated ClusterStor folder at the destination provider and recorded in the account event stream.</p></article>
+        <article><strong>04</strong><h3>Stay synchronized</h3><p>Other clients learn that account changes are available, catch up from their last sequence, and refresh only what they need.</p></article>
+      </div>
     </div>
   </section>
 
   <section id="about" class="marketing-section story-section parallax-story">
     <div class="story-copy">
       <div class="eyebrow">About ClusterStor</div>
-      <h2>Built to make fragmented storage feel invisible.</h2>
-      <p>Cloud storage became easy to buy and hard to manage. ClusterStor is being built to put the user back in control: one identity, one file view, one consistent experience across the providers they choose.</p>
-      <p>The provider remains the storage destination. ClusterStor provides the organization, synchronization, account logic, and client experience around it.</p>
+      <h2>Storage should be infrastructure, not a collection of silos.</h2>
+      <p>Most people accumulate cloud storage one service at a time. A Google account here, Microsoft storage there, another provider for work, another for archives. Each service may work well on its own, but the user ends up managing separate interfaces, folder systems, logins, and sync behaviors.</p>
+      <p>ClusterStor is being built as the layer above those silos. The connected provider still stores the provider-backed bytes; ClusterStor supplies the unified account, logical file model, consistent client experience, synchronization events, device awareness, and future storage choices around them.</p>
+      <p>That distinction matters. ClusterStor is not trying to hide where your data is stored. It is trying to make the storage location a choice instead of a daily usability problem.</p>
+      <div class="about-principles">
+        <span><strong>Provider choice</strong> Keep using the storage accounts you already have.</span>
+        <span><strong>User-controlled Peer</strong> Peer participation is never silently enabled.</span>
+        <span><strong>Portable architecture</strong> Files have ClusterStor identities independent of mutable provider paths.</span>
+      </div>
     </div>
     <div class="story-stack">
-      <div class="story-number"><strong>1</strong><span>Unified workspace</span></div>
-      <div class="story-number"><strong>∞</strong><span>Provider expansion path</span></div>
-      <div class="story-number"><strong>0</strong><span>Peer participation by default</span></div>
+      <div class="story-number"><strong>1</strong><span>Unified workspace across connected providers</span></div>
+      <div class="story-number"><strong>4</strong><span>Target provider adapters: Google Drive, OneDrive, Dropbox, Box</span></div>
+      <div class="story-number"><strong>2</strong><span>Provider adapters included on the free tier</span></div>
+      <div class="story-number"><strong>0</strong><span>Peer contribution enabled by default</span></div>
     </div>
   </section>
 
   <section id="pricing" class="marketing-section section-dark">
     <div class="section-heading">
       <div class="eyebrow">Pricing</div>
-      <h2>Simple storage tiers.</h2>
-      <p>Connected provider storage remains separate. ClusterStor Cloud and Peer capacity are purchased independently when those products launch.</p>
+      <h2>Start free. Add only what you need.</h2>
+      <p>Provider adapters and storage capacity are separate. Connecting an existing cloud provider does not consume purchased ClusterStor Cloud or Peer capacity.</p>
     </div>
-    <div class="pricing-groups">
-      <div>
-        <div class="pricing-label">Peer Storage</div>
-        <div class="pricing-grid">
-          <article class="price-card"><strong>100 GB</strong><span>$2.99/mo</span></article>
-          <article class="price-card"><strong>500 GB</strong><span>$5.99/mo</span></article>
-          <article class="price-card featured"><strong>1 TB</strong><span>$8.99/mo</span></article>
-          <article class="price-card"><strong>2 TB</strong><span>$15.99/mo</span></article>
-        </div>
-      </div>
-      <div>
-        <div class="pricing-label">ClusterStor Cloud</div>
-        <div class="pricing-grid three">
-          <article class="price-card"><strong>500 GB</strong><span>$8.99/mo</span></article>
-          <article class="price-card featured"><strong>1 TB</strong><span>$14.99/mo</span></article>
-          <article class="price-card"><strong>2 TB</strong><span>$24.99/mo</span></article>
-        </div>
+
+    <div class="pricing-matrix-wrap">
+      <div class="pricing-label">Provider adapters</div>
+      <div class="pricing-matrix adapter-matrix">
+        <div class="pricing-row pricing-head"><div>Plan</div><div>Adapters</div><div>Supported providers</div><div>Price</div></div>
+        <div class="pricing-row"><div><strong>Free</strong><small>Best for getting started</small></div><div><strong>2</strong> connected providers</div><div>Choose any 2 supported adapters</div><div><strong>$0</strong></div></div>
+        <div class="pricing-row featured-row"><div><strong>Unified</strong><small>All supported provider adapters</small></div><div><strong>4</strong> connected providers</div><div>Google Drive, OneDrive, Dropbox, Box</div><div><strong>$2/mo</strong><small>or $15/year</small></div></div>
       </div>
     </div>
-    <div class="pricing-note">Connected Google Drive, OneDrive, Dropbox, and Box capacity is not counted as purchased ClusterStor Cloud or Peer capacity.</div>
+
+    <div class="pricing-matrix-wrap">
+      <div class="pricing-label">Peer Storage <span>planned / opt-in</span></div>
+      <div class="pricing-matrix">
+        <div class="pricing-row pricing-head"><div>Plan</div><div>Capacity</div><div>Participation</div><div>Monthly</div></div>
+        <div class="pricing-row"><div>Peer 100</div><div>100 GB</div><div>Opt-in</div><div><strong>$2.99</strong></div></div>
+        <div class="pricing-row"><div>Peer 500</div><div>500 GB</div><div>Opt-in</div><div><strong>$5.99</strong></div></div>
+        <div class="pricing-row featured-row"><div>Peer 1TB</div><div>1 TB</div><div>Opt-in</div><div><strong>$8.99</strong></div></div>
+        <div class="pricing-row"><div>Peer 2TB</div><div>2 TB</div><div>Opt-in</div><div><strong>$15.99</strong></div></div>
+      </div>
+    </div>
+
+    <div class="pricing-matrix-wrap">
+      <div class="pricing-label">ClusterStor Cloud <span>planned managed storage</span></div>
+      <div class="pricing-matrix">
+        <div class="pricing-row pricing-head"><div>Plan</div><div>Capacity</div><div>Storage type</div><div>Monthly</div></div>
+        <div class="pricing-row"><div>Cloud 500</div><div>500 GB</div><div>Managed Cloud</div><div><strong>$8.99</strong></div></div>
+        <div class="pricing-row featured-row"><div>Cloud 1TB</div><div>1 TB</div><div>Managed Cloud</div><div><strong>$14.99</strong></div></div>
+        <div class="pricing-row"><div>Cloud 2TB</div><div>2 TB</div><div>Managed Cloud</div><div><strong>$24.99</strong></div></div>
+      </div>
+    </div>
+
+    <div class="pricing-explainer">
+      <article><strong>Provider adapters</strong><p>These connect ClusterStor to storage you already pay for or receive from Google, Microsoft, Dropbox, or Box.</p></article>
+      <article><strong>Peer Storage</strong><p>Future ClusterStor capacity using the opt-in Peer network. Participating as a storage contributor is always a separate choice.</p></article>
+      <article><strong>ClusterStor Cloud</strong><p>Future managed ClusterStor storage for users who want capacity directly from ClusterStor instead of relying only on connected providers.</p></article>
+    </div>
   </section>
 
   <section id="whats-new" class="marketing-section news-section">
