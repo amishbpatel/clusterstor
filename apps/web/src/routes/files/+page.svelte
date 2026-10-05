@@ -30,7 +30,7 @@
       let pageToken = '';
       do {
         const params = new URLSearchParams({ page_size: '500' });
-        if (pageToken) params.set('page_token', pageToken);
+        if (pageToken) params.set('cursor', pageToken);
         const page = await api<{ items: DriveItem[]; next_page_token?: string }>(
           `/api/v1/providers/google_drive/files?${params.toString()}`
         );
