@@ -102,6 +102,13 @@
       .flatMap((child) => collectFiles(child, folderPrefix));
   }
 
+  function collectFolders(item: DriveItem, prefix = ''): string[] {
+    if (item.node_type !== 'folder') return [];
+    const folderPath = prefix + item.name + '/';
+    const children = items.filter((child) => child.parent_item_id === item.provider_item_id && child.node_type === 'folder');
+    return [folderPath, ...children.flatMap((child) => collectFolders(child, folderPath))];
+  }
+
   async function createFolder() {
     const name = window.prompt('Folder name');
     if (!name?.trim()) return;
@@ -129,9 +136,13 @@
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
       };
-      xhr.onerror = () => reject(new Error(`Unable to upload ${file.name}.`));
+      xhr.onerror = () => reject(new Error(`Unable to reach Google Drive while uploading ${file.name}. The upload session was created, but the browser-to-Google transfer failed.`));
       xhr.onload = () => {
-        if (xhr.status < 200 || xhr.status >= 300) { reject(new Error(`Google Drive upload failed for ${file.name}.`)); return; }
+        if (xhr.status < 200 || xhr.status >= 300) {
+          const detail = (xhr.responseText || '').trim();
+          reject(new Error(`Google Drive upload failed for ${file.name} (HTTP ${xhr.status})${detail ? ': ' + detail.slice(0, 300) : '.'}`));
+          return;
+        }
         try {
           const body = JSON.parse(xhr.responseText || '{}');
           if (!body.id) throw new Error('Missing Google file ID.');
@@ -428,6 +439,9 @@
       }
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
+      for (const folderPath of chosen.flatMap((item) => collectFolders(item))) {
+        zip.folder(folderPath);
+      }
       for (const entry of files) {
         zip.file(entry.path, await fetchDownload(entry.item, false));
       }
