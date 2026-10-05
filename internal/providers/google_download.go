@@ -41,6 +41,26 @@ func (s *Service) OpenGoogleDownload(ctx context.Context, userID, nodeID, rangeH
 		  AND pa.disconnected_at IS NULL
 		ORDER BY so.verified_at DESC NULLS LAST, so.created_at DESC
 		LIMIT 1`, nodeID, userID).Scan(&accountID, &providerItemID, &name, &sizeBytes)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Provider-backed files discovered during Drive sync may not have a
+		// ClusterStor file_version/storage_object yet. They are still valid
+		// downloadable files as long as the provider mapping belongs to this user.
+		err = s.pool.QueryRow(ctx, `
+			SELECT pa.id::text, pi.provider_item_id, n.name, COALESCE(pi.size_bytes,0)
+			FROM nodes n
+			JOIN provider_items pi ON pi.node_id=n.id
+			JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+			WHERE n.id=$1::uuid
+			  AND n.user_id=$2::uuid
+			  AND n.node_type='file'
+			  AND n.deleted_at IS NULL
+			  AND pa.user_id=$2::uuid
+			  AND pa.provider='google_drive'
+			  AND pa.status='connected'
+			  AND pa.disconnected_at IS NULL
+			LIMIT 1`, nodeID, userID).Scan(&accountID, &providerItemID, &name, &sizeBytes)
+	}
 	if errors.Is(err, pgx.ErrNoRows) { return DownloadStream{}, ErrDownloadNotFound }
 	if err != nil { return DownloadStream{}, fmt.Errorf("resolve google download: %w", err) }
 
