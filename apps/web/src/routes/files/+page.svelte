@@ -174,13 +174,14 @@
           })
         });
         let googleFile: { id: string } | null = null;
+        let recovered = false;
         try {
           googleFile = await uploadToGoogle(session.upload_url, file, (fraction) => {
             uploadProgress = Math.round(((index + fraction) / files.length) * 100);
           });
         } catch (e) {
           if (!(e instanceof Error) || e.message !== 'upload_response_lost') throw e;
-          const recovered = await api<{ provider_item_id: string }>('/api/v1/providers/google_drive/uploads/recover', {
+          const recoveredUpload = await api<{ provider_item_id: string }>('/api/v1/providers/google_drive/uploads/recover', {
             method: 'POST',
             body: JSON.stringify({
               name: file.name,
@@ -189,19 +190,15 @@
               parent_node_id: currentFolder?.node_id || null
             })
           });
-          googleFile = { id: recovered.provider_item_id };
+          googleFile = { id: recoveredUpload.provider_item_id };
+          recovered = true;
         }
         if (!googleFile) throw new Error(`Unable to verify ${file.name} in Google Drive.`);
-        const alreadyRecovered = await api<{ items: DriveItem[] }>('/api/v1/providers/google_drive/files?page_size=1').then(() => false).catch(() => false);
-        if (!alreadyRecovered) {
-          try {
-            await api('/api/v1/providers/google_drive/uploads/complete', {
-              method: 'POST',
-              body: JSON.stringify({ provider_item_id: googleFile.id })
-            });
-          } catch (e) {
-            if (!(e instanceof Error) || !e.message.includes('unable')) throw e;
-          }
+        if (!recovered) {
+          await api('/api/v1/providers/google_drive/uploads/complete', {
+            method: 'POST',
+            body: JSON.stringify({ provider_item_id: googleFile.id })
+          });
         }
         uploadProgress = Math.round(((index + 1) / files.length) * 100);
       }
