@@ -9,6 +9,17 @@
   let error = '';
   let loading = true;
   let connecting = false;
+  type RecentActivity = {
+    event_type: string;
+    node_id: string;
+    name: string;
+    provider: string;
+    size_bytes: number;
+    destination?: string | null;
+    created_at: string;
+  };
+  let recentUploads: RecentActivity[] = [];
+  let recentDownloads: RecentActivity[] = [];
 
   $: google = providers.find((p) => p.provider === 'google_drive');
   $: storageProviders = providers.filter((p) => (p.quota_total_bytes || 0) > 0);
@@ -37,15 +48,23 @@
     return Math.max(0, Math.min(100, Math.round((aggregateUsed / aggregateTotal) * 100)));
   }
 
+  function formatActivityTime(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+  }
+
   async function load() {
     error = '';
     try {
       const results = await Promise.all([
         api<User>('/api/v1/me'),
-        api<{ providers: ProviderAccount[] }>('/api/v1/providers')
+        api<{ providers: ProviderAccount[] }>('/api/v1/providers'),
+        api<{ uploads: RecentActivity[]; downloads: RecentActivity[] }>('/api/v1/dashboard/recent')
       ]);
       user = results[0];
       providers = results[1].providers;
+      recentUploads = results[2].uploads;
+      recentDownloads = results[2].downloads;
     } catch (e) {
       if (!getToken()) {
         goto('/login');
@@ -160,25 +179,64 @@
       </section>
     </section>
 
-    <section class="card provider-connect-card">
-      <div class="toolbar">
-        <div>
-          <div class="eyebrow">Storage providers</div>
-          <h2 style="margin:.35rem 0 0">Google Drive</h2>
+    <section class="dashboard-activity-grid">
+      <section class="card activity-card">
+        <div class="activity-card-head">
+          <div>
+            <div class="eyebrow">Recent activity</div>
+            <h2>Recently uploaded</h2>
+          </div>
+          <a class="btn ghost" href="/files">View files</a>
         </div>
-        {#if google}
-          <span class="pill">● Connected</span>
+        {#if recentUploads.length === 0}
+          <div class="activity-empty">No recent uploads yet.</div>
         {:else}
-          <button class="btn primary" on:click={connectGoogle} disabled={connecting}>
-            {connecting ? 'Connecting…' : 'Connect Google Drive'}
-          </button>
+          <div class="activity-table-wrap">
+            <table class="activity-table">
+              <thead><tr><th>File</th><th>Source</th><th>Size</th><th>Uploaded</th></tr></thead>
+              <tbody>
+                {#each recentUploads as item}
+                  <tr>
+                    <td><strong>{item.name}</strong></td>
+                    <td>{providerLabel(item.provider)}</td>
+                    <td>{formatBytes(item.size_bytes)}</td>
+                    <td>{formatActivityTime(item.created_at)}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
         {/if}
-      </div>
-      {#if google}
-        <p class="muted">ClusterStor-created files and folders are kept inside your dedicated <strong>ClusterStor</strong> folder in Google Drive.</p>
-      {:else}
-        <p class="muted">Connect Google Drive to browse files and begin using ClusterStor.</p>
-      {/if}
+      </section>
+
+      <section class="card activity-card">
+        <div class="activity-card-head">
+          <div>
+            <div class="eyebrow">Recent activity</div>
+            <h2>Recently downloaded</h2>
+          </div>
+        </div>
+        {#if recentDownloads.length === 0}
+          <div class="activity-empty">No recorded downloads yet. New web downloads will appear here.</div>
+        {:else}
+          <div class="activity-table-wrap">
+            <table class="activity-table">
+              <thead><tr><th>File</th><th>Source</th><th>Size</th><th>Downloaded</th><th>Downloaded to</th></tr></thead>
+              <tbody>
+                {#each recentDownloads as item}
+                  <tr>
+                    <td><strong>{item.name}</strong></td>
+                    <td>{providerLabel(item.provider)}</td>
+                    <td>{formatBytes(item.size_bytes)}</td>
+                    <td>{formatActivityTime(item.created_at)}</td>
+                    <td>{item.destination || "Web browser"}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      </section>
     </section>
   {/if}
 </AppShell>
