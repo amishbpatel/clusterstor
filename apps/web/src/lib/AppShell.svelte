@@ -22,6 +22,7 @@
       <a class:active={$page.url.pathname.startsWith('/activity')} href="/activity">Activity</a>
       <a class:active={$page.url.pathname.startsWith('/providers')} href="/providers">Providers</a>
       <a class:active={$page.url.pathname.startsWith('/devices')} href="/devices">Devices</a>
+      <a class:active={$page.url.pathname.startsWith('/settings')} href="/settings">Settings</a>
       <button class="btn ghost" on:click={signOut}>Sign out</button>
     </nav>
   </aside>
