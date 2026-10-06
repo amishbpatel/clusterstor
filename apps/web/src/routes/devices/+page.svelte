@@ -10,6 +10,19 @@
   let working = '';
   let error = '';
   let success = '';
+  let pairCode = '';
+  let pairingBusy = false;
+  type PairingPreview = {
+    user_code: string;
+    name: string;
+    platform: string;
+    agent_version?: string | null;
+    peer_contribution_enabled: boolean;
+    peer_contribution_bytes: number;
+    expires_at: string;
+    approved: boolean;
+  };
+  let pairPreview: PairingPreview | null = null;
 
   $: activeDevices = devices.filter((device) => device.status !== 'revoked' && !device.revoked_at);
   $: revokedDevices = devices.filter((device) => device.status === 'revoked' || !!device.revoked_at);
@@ -68,9 +81,49 @@
     }
   }
 
+  async function loadPairingPreview() {
+    if (!pairCode) return;
+    pairingBusy = true;
+    error = '';
+    try {
+      pairPreview = await api<PairingPreview>('/api/v1/device-pairings/preview?code=' + encodeURIComponent(pairCode));
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to load device pairing.';
+      pairPreview = null;
+    } finally {
+      pairingBusy = false;
+    }
+  }
+
+  async function approvePairing() {
+    if (!pairCode || !pairPreview || pairPreview.approved) return;
+    pairingBusy = true;
+    error = '';
+    success = '';
+    try {
+      pairPreview = await api<PairingPreview>('/api/v1/device-pairings/approve', {
+        method: 'POST',
+        body: JSON.stringify({ user_code: pairCode })
+      });
+      success = pairPreview.name + ' approved. The desktop agent is completing registration.';
+      history.replaceState({}, '', '/devices');
+      setTimeout(() => load(), 2500);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to approve device pairing.';
+    } finally {
+      pairingBusy = false;
+    }
+  }
+
   onMount(() => {
-    if (!getToken()) { goto('/login'); return; }
+    pairCode = new URLSearchParams(window.location.search).get('pair') || '';
+    if (!getToken()) {
+      const next = window.location.pathname + window.location.search;
+      goto('/login?next=' + encodeURIComponent(next));
+      return;
+    }
     load();
+    if (pairCode) loadPairingPreview();
   });
 </script>
 
@@ -91,6 +144,29 @@
 
   {#if error}<div class="error" style="margin-bottom:16px">{error}</div>{/if}
   {#if success}<div class="success" style="margin-bottom:16px">{success}</div>{/if}
+
+  {#if pairCode}
+    <section class="device-pair-card">
+      <div>
+        <div class="eyebrow">Desktop pairing</div>
+        {#if pairingBusy && !pairPreview}
+          <strong>Checking pairing code {pairCode}…</strong>
+        {:else if pairPreview}
+          <strong>Approve {pairPreview.name}?</strong>
+          <span>{platformLabel(pairPreview.platform)}{pairPreview.agent_version ? ' · Agent ' + pairPreview.agent_version : ''}</span>
+          <span>Peer Storage: {pairPreview.peer_contribution_enabled ? 'ON · ' + formatBytes(pairPreview.peer_contribution_bytes) : 'OFF'}</span>
+        {:else}
+          <strong>Pairing code {pairCode}</strong>
+          <span>Unable to load pairing details.</span>
+        {/if}
+      </div>
+      {#if pairPreview && !pairPreview.approved}
+        <button class="btn primary" on:click={approvePairing} disabled={pairingBusy}>{pairingBusy ? 'Approving…' : 'Approve device'}</button>
+      {:else if pairPreview?.approved}
+        <span class="device-status active">Approved</span>
+      {/if}
+    </section>
+  {/if}
 
   <section class="device-agent-banner">
     <div>
