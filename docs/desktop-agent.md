@@ -18,8 +18,9 @@ The current Windows agent slice provides:
 - one-time device credential issuance after approval;
 - Windows DPAPI protection for the device secret at rest;
 - device-authenticated heartbeats that update `last_seen_at`;
-- automatic per-user local `ClusterStor` sync-root creation;
-- persistent local sync journal state stored outside the sync root;
+- a Windows mapped-drive experience with a user-selected drive name and drive letter;
+- a private per-user backing directory hidden from the normal file workflow;
+- persistent local sync journal state stored outside the mapped drive;
 - revocation through the existing Devices screen;
 - Windows cross-compilation in CI;
 - an Inno Setup developer-preview installer definition.
@@ -46,33 +47,49 @@ The agent does not yet synchronize files. This is intentional: device identity, 
 
 The account password, normal browser session token, provider OAuth tokens, and device secret must never be written to logs.
 
-## Local sync root and journal
+## Windows mapped drive and journal
 
-After pairing, the agent creates a local ClusterStor folder. The default Windows path is:
+ClusterStor appears to the user as a drive under **This PC**, not as a normal folder inside the user's home directory.
 
-```text
-%USERPROFILE%\ClusterStor
-```
+During first-run setup the user chooses:
 
-A developer can override it with:
+- a drive display name, defaulting to **ClusterStor**;
+- a drive letter, preferring **S:** when available.
 
-```text
-clusterstor-agent.exe --sync-root "D:\ClusterStor"
-```
-
-Internal agent state is deliberately kept outside the sync root so it cannot be uploaded as customer content. On Windows, the local state directory is:
+Examples:
 
 ```text
-%LOCALAPPDATA%\ClusterStor
+ClusterStor (S:)
+My Cloud (X:)
+Business Files (T:)
 ```
 
-The first persistent sync journal is:
+The settings are persisted in the agent configuration and the mapping is recreated when the agent starts.
+
+The current developer implementation uses a Windows mapped/substituted drive backed by a private local directory:
+
+```text
+%LOCALAPPDATA%\ClusterStor\DriveRoot
+```
+
+That backing directory is an implementation detail. Users should normally interact with the selected drive letter rather than browsing the backing path directly.
+
+Developers can override the choices with:
+
+```text
+clusterstor-agent.exe --drive-name "My Cloud" --drive-letter X
+clusterstor-agent.exe --sync-root "D:\ClusterStorBacking"
+```
+
+Internal agent state remains outside the mapped drive so ClusterStor cannot accidentally sync its own metadata. The first persistent sync journal is:
 
 ```text
 %LOCALAPPDATA%\ClusterStor\sync-journal.json
 ```
 
-The journal currently records the device identity, sync root, schema version, logical item map, pending-operation queue, and generation metadata. The item map and operation queue are empty until the filesystem watcher and sync engine are introduced.
+The journal currently records the device identity, backing root, schema version, logical item map, pending-operation queue, and generation metadata. The item map and operation queue remain empty until the filesystem watcher and sync engine are introduced.
+
+The production installer exposes the drive name and letter as visual setup fields. Later Settings UI will allow those preferences to be managed without command-line flags. A richer Windows Cloud Files integration can replace the simple mapped-drive presentation when Files On-Demand/placeholders are implemented without changing the provider-neutral sync model.
 
 ## Windows build
 
@@ -134,7 +151,7 @@ Billing should cover the current plan, provider-adapter entitlement, ClusterStor
 ## Next desktop milestones
 
 1. tray/background lifecycle and Windows startup behavior;
-2. local ClusterStor folder creation;
+2. mapped-drive lifecycle and Settings controls;
 3. local metadata database and sync journal;
 4. filesystem watcher;
 5. provider-neutral sync operation interface;
