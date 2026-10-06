@@ -77,6 +77,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("GET /api/v1/trash", requireUser(authService, http.HandlerFunc(handleTrash(providerService))))
 	mux.Handle("POST /api/v1/nodes/{id}/restore", requireUser(authService, http.HandlerFunc(handleRestoreNode(providerService))))
 	mux.Handle("GET /api/v1/events", requireUser(authService, http.HandlerFunc(handleAccountEvents(eventService))))
+	mux.Handle("GET /api/v1/activity", requireUser(authService, http.HandlerFunc(handleActivity(eventService))))
 	mux.Handle("GET /api/v1/dashboard/recent", requireUser(authService, http.HandlerFunc(handleRecentDashboard(eventService))))
 	mux.Handle("GET /api/v1/dashboard/files", requireUser(authService, http.HandlerFunc(handleDashboardFileStats(providerService))))
 	mux.Handle("POST /api/v1/downloads/record", requireUser(authService, http.HandlerFunc(handleRecordDownload(eventService))))
@@ -850,6 +851,56 @@ func handleRecentDashboard(service *events.Service) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+
+func handleActivity(service *events.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		query := events.ActivityQuery{
+			EventType: strings.TrimSpace(r.URL.Query().Get("event_type")),
+			Provider: strings.TrimSpace(r.URL.Query().Get("provider")),
+			Search: strings.TrimSpace(r.URL.Query().Get("q")),
+		}
+		if raw:=strings.TrimSpace(r.URL.Query().Get("before")); raw!="" {
+			value,err:=strconv.ParseInt(raw,10,64)
+			if err!=nil || value<1 {
+				writeError(w,http.StatusBadRequest,"invalid_cursor","before must be a positive event sequence")
+				return
+			}
+			query.Before=value
+		}
+		if raw:=strings.TrimSpace(r.URL.Query().Get("limit")); raw!="" {
+			value,err:=strconv.Atoi(raw)
+			if err!=nil || value<1 {
+				writeError(w,http.StatusBadRequest,"invalid_limit","limit must be a positive integer")
+				return
+			}
+			query.Limit=value
+		}
+		if raw:=strings.TrimSpace(r.URL.Query().Get("from")); raw!="" {
+			value,err:=time.Parse(time.RFC3339,raw)
+			if err!=nil {
+				writeError(w,http.StatusBadRequest,"invalid_from","from must be an RFC3339 timestamp")
+				return
+			}
+			query.From=&value
+		}
+		if raw:=strings.TrimSpace(r.URL.Query().Get("to")); raw!="" {
+			value,err:=time.Parse(time.RFC3339,raw)
+			if err!=nil {
+				writeError(w,http.StatusBadRequest,"invalid_to","to must be an RFC3339 timestamp")
+				return
+			}
+			query.To=&value
+		}
+		user,_:=r.Context().Value(userContextKey{}).(auth.User)
+		page,err:=service.Activity(r.Context(),user.ID,query)
+		if err!=nil {
+			writeError(w,http.StatusInternalServerError,"internal_error","unable to load activity")
+			return
+		}
+		writeJSON(w,http.StatusOK,page)
 	}
 }
 
