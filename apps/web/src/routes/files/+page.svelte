@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import AppShell from '$lib/AppShell.svelte';
+  import LoadingState from '$lib/LoadingState.svelte';
   import { api, API_BASE, getToken, formatBytes, openEventSocket, type DriveItem } from '$lib/api';
 
   let items: DriveItem[] = [];
@@ -670,7 +671,7 @@
       {/if}
       <div class="file-list-pane">
     {#if loading}
-      <div class="empty">Loading files…</div>
+      <div class="empty"><LoadingState label="Loading files…" /></div>
     {:else if visibleItems.length === 0}
       <div class="empty">
         <strong>{trashMode ? 'Trash is empty.' : 'This folder is empty.'}</strong>
