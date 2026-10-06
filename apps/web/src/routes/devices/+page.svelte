@@ -171,10 +171,10 @@
   <section class="device-agent-banner">
     <div>
       <div class="eyebrow">Desktop agent</div>
-      <strong>Device registration will be completed by the ClusterStor desktop agent.</strong>
-      <span>The agent will register the computer securely during setup. Peer Storage remains off unless the user explicitly opts in and selects disk space to contribute.</span>
+      <strong>Windows desktop agent foundation is active.</strong>
+      <span>The agent pairs securely, mounts the ClusterStor drive, reports device presence, and keeps Peer Storage opt-in. File synchronization is the next desktop implementation phase.</span>
     </div>
-    <button class="btn ghost" disabled>Desktop agent coming next</button>
+    <span class="device-status active">Developer preview</span>
   </section>
 
   {#if loading}
