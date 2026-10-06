@@ -91,6 +91,7 @@
     error = '';
     try {
       await ensureRoot();
+      await api('/api/v1/providers/google_drive/changes', { method: 'POST' });
       await loadFolder(null, true);
       if (currentFolder) await loadFolder(currentFolder, true);
     } catch (e) {
