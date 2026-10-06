@@ -68,6 +68,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService, eventService))))
 	mux.Handle("GET /api/v1/nodes/{id}/versions", requireUser(authService, http.HandlerFunc(handleFileVersions(providerService))))
 	mux.Handle("POST /api/v1/nodes/{id}/versions/uploads", requireUser(authService, http.HandlerFunc(handleBeginVersionUpload(providerService))))
+	mux.Handle("POST /api/v1/nodes/{id}/versions/uploads/recover", requireUser(authService, http.HandlerFunc(handleRecoverVersionUpload(providerService))))
 	mux.Handle("GET /api/v1/nodes/{id}/versions/{versionID}/download", requireUser(authService, http.HandlerFunc(handleVersionDownload(providerService))))
 	mux.Handle("DELETE /api/v1/nodes/{id}", requireUser(authService, http.HandlerFunc(handleDeleteNode(providerService))))
 	mux.Handle("PATCH /api/v1/nodes/{id}/name", requireUser(authService, http.HandlerFunc(handleRenameNode(providerService))))
@@ -685,6 +686,33 @@ func handleBeginVersionUpload(service *providers.Service) http.HandlerFunc {
 		}
 	}
 }
+
+func handleRecoverVersionUpload(service *providers.Service) http.HandlerFunc {
+	type request struct { SizeBytes int64 `json:"size_bytes"` }
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w,r,&body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		result, err := service.RecoverGoogleVersionUpload(r.Context(),user.ID,r.PathValue("id"),body.SizeBytes)
+		switch {
+		case errors.Is(err, providers.ErrVersionHistoryNotFound):
+			writeError(w,http.StatusNotFound,"version_history_not_found","file was not found")
+		case errors.Is(err, providers.ErrVersionHistoryUnavailable):
+			writeError(w,http.StatusNotFound,"version_upload_not_verified","new Google Drive revision could not be verified")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w,http.StatusNotFound,"provider_not_connected","google drive is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w,http.StatusServiceUnavailable,"provider_not_configured","google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w,http.StatusBadGateway,"oauth_refresh_failed","google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w,http.StatusBadGateway,"provider_error","unable to recover version upload")
+		default:
+			writeJSON(w,http.StatusOK,result)
+		}
+	}
+}
+
 
 func handleVersionDownload(service *providers.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
