@@ -18,14 +18,16 @@ import (
 	"github.com/amishbpatel/clusterstor/internal/agent"
 )
 
-const agentVersion = "0.2.0-dev"
+const agentVersion = "0.3.0-dev"
 
 func main() {
 	defaultAPI:=strings.TrimSpace(os.Getenv("CLUSTERSTOR_API_BASE_URL"))
 	if defaultAPI=="" { defaultAPI="http://localhost:8080" }
 
 	apiBase:=flag.String("api",defaultAPI,"ClusterStor API base URL")
-	syncRootFlag:=flag.String("sync-root","","local ClusterStor sync folder")
+	syncRootFlag:=flag.String("sync-root","","internal ClusterStor drive backing folder")
+	driveNameFlag:=flag.String("drive-name","","Windows drive display name")
+	driveLetterFlag:=flag.String("drive-letter","","Windows drive letter")
 	once:=flag.Bool("once",false,"send one heartbeat and exit after registration")
 	flag.Parse()
 
@@ -46,17 +48,46 @@ func main() {
 	if strings.TrimSpace(*syncRootFlag)!="" {
 		cfg.SyncRoot=*syncRootFlag
 	}
-	syncRoot,err:=agent.EnsureSyncRoot(cfg.SyncRoot)
-	if err!=nil { log.Fatalf("prepare ClusterStor folder: %v",err) }
-	if cfg.SyncRoot!=syncRoot || cfg.AgentVersion!=agentVersion {
-		cfg.SyncRoot=syncRoot
-		cfg.AgentVersion=agentVersion
-		if err:=agent.SaveConfig(cfg); err!=nil { log.Fatalf("store agent configuration: %v",err) }
+	if strings.TrimSpace(*driveNameFlag)!="" {
+		cfg.DriveName=*driveNameFlag
 	}
+	if strings.TrimSpace(*driveLetterFlag)!="" {
+		cfg.DriveLetter=*driveLetterFlag
+	}
+
+	if runtime.GOOS=="windows" && (strings.TrimSpace(cfg.DriveName)=="" || strings.TrimSpace(cfg.DriveLetter)=="") {
+		reader:=bufio.NewReader(os.Stdin)
+		cfg,err=promptDrive(reader,cfg)
+		if err!=nil { log.Fatalf("configure ClusterStor drive: %v",err) }
+	}
+
+	syncRoot,err:=agent.EnsureSyncRoot(cfg.SyncRoot)
+	if err!=nil { log.Fatalf("prepare ClusterStor drive backing folder: %v",err) }
+	cfg.SyncRoot=syncRoot
+	cfg.AgentVersion=agentVersion
+
+	if runtime.GOOS=="windows" {
+		name,err:=agent.ValidateDriveName(cfg.DriveName)
+		if err!=nil { log.Fatalf("invalid ClusterStor drive name: %v",err) }
+		letter,err:=agent.NormalizeDriveLetter(cfg.DriveLetter)
+		if err!=nil { log.Fatalf("invalid ClusterStor drive letter: %v",err) }
+		cfg.DriveName=name
+		cfg.DriveLetter=letter
+		if err:=agent.EnsureDriveMapping(letter,name,syncRoot); err!=nil {
+			log.Fatalf("mount ClusterStor drive: %v",err)
+		}
+	}
+
+	if err:=agent.SaveConfig(cfg); err!=nil { log.Fatalf("store agent configuration: %v",err) }
+
 	journal,err:=agent.OpenJournal(cfg.DeviceID,syncRoot)
 	if err!=nil { log.Fatalf("open sync journal: %v",err) }
 	snapshot:=journal.Snapshot()
-	log.Printf("ClusterStor folder ready: %s",syncRoot)
+	if runtime.GOOS=="windows" {
+		log.Printf("ClusterStor drive ready: %s (%s:)",cfg.DriveName,cfg.DriveLetter)
+	} else {
+		log.Printf("ClusterStor sync root ready: %s",syncRoot)
+	}
 	log.Printf("Sync journal ready: generation=%d items=%d pending=%d",snapshot.Generation,len(snapshot.Items),len(snapshot.Pending))
 
 	secret,err:=agent.LoadDeviceSecret()
@@ -125,6 +156,8 @@ func pairDevice(ctx context.Context,client *agent.Client,cfg agent.Config) (agen
 			Platform:status.Registration.Device.Platform,
 			AgentVersion:agentVersion,
 			SyncRoot:cfg.SyncRoot,
+			DriveName:cfg.DriveName,
+			DriveLetter:cfg.DriveLetter,
 			PeerContributionEnabled:status.Registration.Device.PeerContributionEnabled,
 			PeerContributionBytes:status.Registration.Device.PeerContributionBytes,
 		}
@@ -132,6 +165,52 @@ func pairDevice(ctx context.Context,client *agent.Client,cfg agent.Config) (agen
 		fmt.Println("This computer is now registered with ClusterStor.")
 		return cfg,nil
 	}
+}
+
+func promptDrive(reader *bufio.Reader,cfg agent.Config) (agent.Config,error) {
+	defaultName:=strings.TrimSpace(cfg.DriveName)
+	if defaultName=="" { defaultName="ClusterStor" }
+
+	defaultLetter:=strings.TrimSpace(cfg.DriveLetter)
+	if defaultLetter=="" { defaultLetter=agent.PreferredDriveLetter() }
+	if defaultLetter=="" { return cfg,errors.New("no preferred drive letter is available") }
+
+	for {
+		fmt.Printf("Drive name [%s]: ",defaultName)
+		raw,err:=reader.ReadString('\n')
+		if err!=nil && len(raw)==0 { return cfg,err }
+		value:=strings.TrimSpace(raw)
+		if value=="" { value=defaultName }
+		name,validateErr:=agent.ValidateDriveName(value)
+		if validateErr!=nil {
+			fmt.Printf("Invalid drive name: %v\n",validateErr)
+			continue
+		}
+		cfg.DriveName=name
+		break
+	}
+
+	for {
+		fmt.Printf("Drive letter [%s]: ",defaultLetter)
+		raw,err:=reader.ReadString('\n')
+		if err!=nil && len(raw)==0 { return cfg,err }
+		value:=strings.TrimSpace(raw)
+		if value=="" { value=defaultLetter }
+		letter,normalizeErr:=agent.NormalizeDriveLetter(value)
+		if normalizeErr!=nil {
+			fmt.Printf("Invalid drive letter: %v\n",normalizeErr)
+			continue
+		}
+		available,checkErr:=agent.DriveLetterAvailable(letter)
+		if checkErr!=nil { return cfg,checkErr }
+		if !available {
+			fmt.Printf("Drive %s: is already in use. Choose another letter.\n",letter)
+			continue
+		}
+		cfg.DriveLetter=letter
+		break
+	}
+	return cfg,nil
 }
 
 func promptPeer(reader *bufio.Reader) (bool,int64,error) {
