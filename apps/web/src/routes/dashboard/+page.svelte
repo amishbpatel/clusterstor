@@ -80,6 +80,7 @@
   async function load() {
     error = '';
     try {
+      try { await api('/api/v1/providers/google_drive/changes', { method: 'POST' }); } catch {}
       const results = await Promise.all([
         api<User>('/api/v1/me'),
         api<{ providers: ProviderAccount[] }>('/api/v1/providers'),
