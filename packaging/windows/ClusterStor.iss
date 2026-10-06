@@ -32,4 +32,72 @@ Name: "{group}\ClusterStor"; Filename: "{app}\{#MyAppExeName}"
 Name: "{userstartup}\ClusterStor"; Filename: "{app}\{#MyAppExeName}"; Tasks: startup
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Pair this computer with ClusterStor"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--drive-name ""{code:GetDriveName}"" --drive-letter ""{code:GetDriveLetter}"""; Description: "Pair this computer with ClusterStor"; Flags: postinstall nowait skipifsilent
+
+[Code]
+var
+  DrivePage: TInputQueryWizardPage;
+
+procedure InitializeWizard;
+begin
+  DrivePage := CreateInputQueryPage(
+    wpSelectTasks,
+    'ClusterStor Drive',
+    'Choose how ClusterStor appears in File Explorer',
+    'ClusterStor will appear under This PC as a mapped drive. You can change these settings later.'
+  );
+  DrivePage.Add('Drive name:', False);
+  DrivePage.Values[0] := 'ClusterStor';
+  DrivePage.Add('Drive letter:', False);
+  DrivePage.Values[1] := 'S';
+end;
+
+function NormalizeDriveLetter(Value: String): String;
+begin
+  Result := Uppercase(Trim(Value));
+  if (Length(Result) = 2) and (Result[2] = ':') then
+    Delete(Result, 2, 1);
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Letter: String;
+begin
+  Result := True;
+  if CurPageID <> DrivePage.ID then
+    Exit;
+
+  if Trim(DrivePage.Values[0]) = '' then
+  begin
+    MsgBox('Enter a name for the ClusterStor drive.', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  Letter := NormalizeDriveLetter(DrivePage.Values[1]);
+  if (Length(Letter) <> 1) or (Letter[1] < 'A') or (Letter[1] > 'Z') then
+  begin
+    MsgBox('Enter a single drive letter from A to Z.', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  if DirExists(Letter + ':\') then
+  begin
+    MsgBox('Drive ' + Letter + ': is already in use. Choose another letter.', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  DrivePage.Values[1] := Letter;
+end;
+
+function GetDriveName(Param: String): String;
+begin
+  Result := Trim(DrivePage.Values[0]);
+end;
+
+function GetDriveLetter(Param: String): String;
+begin
+  Result := NormalizeDriveLetter(DrivePage.Values[1]);
+end;
