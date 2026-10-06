@@ -72,6 +72,35 @@ dist\windows\ClusterStorSetup.exe
 
 The installer is per-user and does not require administrator privileges. Automatic startup is currently an optional installer task until the tray/background lifecycle is complete.
 
+## Tray and Settings UX
+
+The production Windows tray menu should stay focused on day-to-day operation:
+
+- Open ClusterStor folder
+- Sync status
+- Pause / Resume sync
+- Activity
+- Providers
+- Devices
+- Settings
+- Manage plan...
+- Exit ClusterStor
+
+`Manage plan...` is a convenience shortcut that opens the signed-in web billing screen. Full billing administration belongs under **Settings > Billing** in the ClusterStor account experience rather than being implemented as a complex native tray workflow.
+
+Settings should eventually include:
+
+- General
+- Sync
+- Providers
+- Devices
+- Peer Storage
+- Notifications
+- Billing
+- About / Updates
+
+Billing should cover the current plan, provider-adapter entitlement, ClusterStor Cloud capacity, Peer Storage plan, renewal cycle, payment method, invoices/receipts, upgrade/downgrade, and cancellation. The desktop agent must not store payment-card data or billing-provider credentials.
+
 ## Next desktop milestones
 
 1. tray/background lifecycle and Windows startup behavior;
