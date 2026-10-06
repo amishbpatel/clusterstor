@@ -212,6 +212,9 @@ func (s *Service) BeginGoogleVersionUpload(ctx context.Context, userID, nodeID, 
 func (s *Service) ListFileVersions(ctx context.Context, userID, nodeID string) ([]FileVersion,error) {
 	nodeID = strings.TrimSpace(nodeID)
 	if nodeID=="" { return nil,ErrVersionHistoryNotFound }
+	if err := s.ensureCurrentGoogleRevisionCaptured(ctx,userID,nodeID); err != nil {
+		return nil,err
+	}
 
 	var nodeType string
 	if err := s.pool.QueryRow(ctx,
