@@ -843,7 +843,7 @@
     </div>
     <div class="actions">
       <button class="btn" on:click={createFolder} disabled={working}>New folder</button>
-      <button class="btn primary" on:click={chooseUpload} disabled={working || trashMode}>Upload files</button>
+      <button class="btn primary" on:click={chooseUpload} disabled={working || trashMode}>Upload new files</button>
       <button class="btn ghost" on:click={trashMode ? showFiles : showTrash} disabled={working}>{trashMode ? 'My Files' : 'Trash'}</button>
       <input bind:this={fileInput} type="file" multiple style="display:none" on:change={uploadSelected} />
       <input bind:this={versionInput} type="file" style="display:none" on:change={uploadNewVersion} />
