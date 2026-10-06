@@ -53,6 +53,11 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/devices", requireUser(authService, http.HandlerFunc(handleRegisterDevice(deviceService))))
 	mux.Handle("GET /api/v1/devices", requireUser(authService, http.HandlerFunc(handleListDevices(deviceService))))
 	mux.Handle("DELETE /api/v1/devices/{id}", requireUser(authService, http.HandlerFunc(handleRevokeDevice(deviceService))))
+	mux.HandleFunc("POST /api/v1/device-pairings", handleStartDevicePairing(deviceService, providerService.PublicBaseURL()))
+	mux.HandleFunc("POST /api/v1/device-pairings/status", handlePollDevicePairing(deviceService))
+	mux.Handle("GET /api/v1/device-pairings/preview", requireUser(authService, http.HandlerFunc(handlePreviewDevicePairing(deviceService))))
+	mux.Handle("POST /api/v1/device-pairings/approve", requireUser(authService, http.HandlerFunc(handleApproveDevicePairing(deviceService))))
+	mux.HandleFunc("POST /api/v1/agent/heartbeat", handleAgentHeartbeat(deviceService))
 	mux.Handle("POST /api/v1/providers/google_drive/oauth/start", requireUser(authService, http.HandlerFunc(handleGoogleOAuthStart(providerService))))
 	mux.HandleFunc("GET /api/v1/providers/google_drive/callback", handleGoogleOAuthCallback(providerService))
 	mux.Handle("GET /api/v1/providers", requireUser(authService, http.HandlerFunc(handleListProviders(providerService))))
@@ -198,6 +203,114 @@ func handleRevokeDevice(service *devices.Service) http.HandlerFunc {
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
+
+func handleStartDevicePairing(service *devices.Service, publicBaseURL string) http.HandlerFunc {
+	type request struct {
+		Name string `json:"name"`
+		Platform string `json:"platform"`
+		AgentVersion *string `json:"agent_version"`
+		PeerContributionEnabled bool `json:"peer_contribution_enabled"`
+		PeerContributionBytes int64 `json:"peer_contribution_bytes"`
+	}
+	return func(w http.ResponseWriter,r *http.Request) {
+		var body request
+		if !decodeJSON(w,r,&body) { return }
+		result,err:=service.StartPairing(r.Context(),body.Name,body.Platform,body.AgentVersion,body.PeerContributionEnabled,body.PeerContributionBytes,publicBaseURL)
+		switch {
+		case errors.Is(err,devices.ErrInvalidDevice):
+			writeError(w,http.StatusBadRequest,"invalid_device","device name, platform, and peer storage selection are invalid")
+		case err!=nil:
+			writeError(w,http.StatusInternalServerError,"internal_error","unable to start device pairing")
+		default:
+			writeJSON(w,http.StatusCreated,result)
+		}
+	}
+}
+
+func handlePollDevicePairing(service *devices.Service) http.HandlerFunc {
+	type request struct { PollToken string `json:"poll_token"` }
+	return func(w http.ResponseWriter,r *http.Request) {
+		var body request
+		if !decodeJSON(w,r,&body) { return }
+		result,err:=service.PollPairing(r.Context(),body.PollToken)
+		switch {
+		case errors.Is(err,devices.ErrPairingNotFound):
+			writeError(w,http.StatusNotFound,"pairing_not_found","device pairing was not found")
+		case errors.Is(err,devices.ErrPairingExpired):
+			writeError(w,http.StatusGone,"pairing_expired","device pairing expired")
+		case err!=nil:
+			writeError(w,http.StatusInternalServerError,"internal_error","unable to check device pairing")
+		default:
+			writeJSON(w,http.StatusOK,result)
+		}
+	}
+}
+
+func handlePreviewDevicePairing(service *devices.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter,r *http.Request) {
+		result,err:=service.PreviewPairing(r.Context(),r.URL.Query().Get("code"))
+		switch {
+		case errors.Is(err,devices.ErrPairingNotFound):
+			writeError(w,http.StatusNotFound,"pairing_not_found","device pairing was not found")
+		case errors.Is(err,devices.ErrPairingExpired):
+			writeError(w,http.StatusGone,"pairing_expired","device pairing expired")
+		case err!=nil:
+			writeError(w,http.StatusInternalServerError,"internal_error","unable to preview device pairing")
+		default:
+			writeJSON(w,http.StatusOK,result)
+		}
+	}
+}
+
+func handleApproveDevicePairing(service *devices.Service) http.HandlerFunc {
+	type request struct { UserCode string `json:"user_code"` }
+	return func(w http.ResponseWriter,r *http.Request) {
+		var body request
+		if !decodeJSON(w,r,&body) { return }
+		user,_:=r.Context().Value(userContextKey{}).(auth.User)
+		result,err:=service.ApprovePairing(r.Context(),user.ID,body.UserCode)
+		switch {
+		case errors.Is(err,devices.ErrPairingNotFound):
+			writeError(w,http.StatusNotFound,"pairing_not_found","device pairing was not found")
+		case errors.Is(err,devices.ErrPairingExpired):
+			writeError(w,http.StatusGone,"pairing_expired","device pairing expired")
+		case err!=nil:
+			writeError(w,http.StatusInternalServerError,"internal_error","unable to approve device pairing")
+		default:
+			writeJSON(w,http.StatusOK,result)
+		}
+	}
+}
+
+func handleAgentHeartbeat(service *devices.Service) http.HandlerFunc {
+	type request struct { AgentVersion *string `json:"agent_version"` }
+	return func(w http.ResponseWriter,r *http.Request) {
+		header:=strings.TrimSpace(r.Header.Get("Authorization"))
+		if !strings.HasPrefix(header,"Device ") {
+			writeError(w,http.StatusUnauthorized,"missing_device_credential","device credential is required")
+			return
+		}
+		credential:=strings.TrimSpace(strings.TrimPrefix(header,"Device "))
+		parts:=strings.SplitN(credential,".",2)
+		if len(parts)!=2 || strings.TrimSpace(parts[0])=="" || strings.TrimSpace(parts[1])=="" {
+			writeError(w,http.StatusUnauthorized,"invalid_device_credential","device credential is invalid")
+			return
+		}
+		var body request
+		if !decodeJSON(w,r,&body) { return }
+		device,err:=service.Heartbeat(r.Context(),parts[0],parts[1],body.AgentVersion)
+		if errors.Is(err,devices.ErrNotFound) {
+			writeError(w,http.StatusUnauthorized,"invalid_device_credential","device credential is invalid or revoked")
+			return
+		}
+		if err!=nil {
+			writeError(w,http.StatusInternalServerError,"internal_error","unable to update device heartbeat")
+			return
+		}
+		writeJSON(w,http.StatusOK,map[string]any{"device":device})
+	}
+}
+
 
 func requireUser(service *auth.Service, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
