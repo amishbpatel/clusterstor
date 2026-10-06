@@ -23,6 +23,20 @@
   let internalDragNodeID = '';
   let dropTargetNodeID = '';
   let loadedFolders = new Set<string>();
+  type FileVersionEntry = {
+    id: string;
+    version_number: number;
+    size_bytes: number;
+    provider: string;
+    created_at: string;
+    is_current: boolean;
+    downloadable: boolean;
+  };
+  let versionFile: FileItem | null = null;
+  let versions: FileVersionEntry[] = [];
+  let versionsLoading = false;
+  let versionUploading = false;
+  let versionInput: HTMLInputElement;
 
   $: currentProviderParent = currentFolder ? currentFolder.provider_item_id : rootProviderID;
   $: visibleItems = (trashMode ? trashItems : items.filter((item) => item.parent_item_id === currentProviderParent))
@@ -535,6 +549,116 @@
     URL.revokeObjectURL(url);
   }
 
+  function versionDownloadName(name: string, versionNumber: number) {
+    const dot = name.lastIndexOf('.');
+    if (dot > 0) return name.slice(0, dot) + '-v' + versionNumber + name.slice(dot);
+    return name + '-v' + versionNumber;
+  }
+
+  async function loadVersions(item: FileItem) {
+    versionsLoading = true;
+    error = '';
+    try {
+      const result = await api<{ versions: FileVersionEntry[] }>(`/api/v1/nodes/${item.node_id}/versions`);
+      versions = result.versions;
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to load version history.';
+      versions = [];
+    } finally {
+      versionsLoading = false;
+    }
+  }
+
+  async function openVersionHistory(item: FileItem) {
+    versionFile = item;
+    versions = [];
+    await loadVersions(item);
+  }
+
+  function closeVersionHistory() {
+    if (versionUploading) return;
+    versionFile = null;
+    versions = [];
+  }
+
+  function chooseNewVersion() {
+    versionInput?.click();
+  }
+
+  async function uploadNewVersion(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    const target = versionFile;
+    input.value = '';
+    if (!file || !target) return;
+
+    working = true;
+    versionUploading = true;
+    error = '';
+    success = '';
+    uploadProgress = 0;
+    uploadLabel = `Uploading new version of ${target.name}`;
+    try {
+      const session = await api<{ upload_url: string }>(`/api/v1/nodes/${target.node_id}/versions/uploads`, {
+        method: 'POST',
+        body: JSON.stringify({
+          content_type: file.type || 'application/octet-stream',
+          size_bytes: file.size
+        })
+      });
+
+      let finalized = false;
+      try {
+        const googleFile = await uploadToGoogle(session.upload_url, file, (fraction) => {
+          uploadProgress = Math.round(fraction * 100);
+        });
+        await api('/api/v1/providers/google_drive/uploads/complete', {
+          method: 'POST',
+          body: JSON.stringify({ provider_item_id: googleFile.id })
+        });
+        finalized = true;
+      } catch (e) {
+        if (!(e instanceof Error) || e.message !== 'upload_response_lost') throw e;
+        await api(`/api/v1/nodes/${target.node_id}/versions/uploads/recover`, {
+          method: 'POST',
+          body: JSON.stringify({ size_bytes: file.size })
+        });
+        finalized = true;
+      }
+
+      if (!finalized) throw new Error('Unable to finalize the new version.');
+      uploadProgress = 100;
+      success = `New version of ${target.name} uploaded.`;
+      await loadVersions(target);
+      await refreshVisibleData(false);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to upload new version.';
+    } finally {
+      working = false;
+      versionUploading = false;
+      uploadLabel = '';
+      uploadProgress = 0;
+    }
+  }
+
+  async function downloadVersion(version: FileVersionEntry) {
+    const target = versionFile;
+    if (!target) return;
+    error = '';
+    try {
+      const token = getToken();
+      if (!token) { goto('/login'); return; }
+      const response = await fetch(
+        `${API_BASE}/api/v1/nodes/${target.node_id}/versions/${version.id}/download`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!response.ok) throw new Error(`Unable to download version ${version.version_number}.`);
+      await saveBlob(await response.blob(), versionDownloadName(target.name, version.version_number));
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to download historical version.';
+    }
+  }
+
   async function download(item: FileItem) {
     error = '';
     try {
@@ -697,6 +821,7 @@
       <button class="btn primary" on:click={chooseUpload} disabled={working || trashMode}>Upload files</button>
       <button class="btn ghost" on:click={trashMode ? showFiles : showTrash} disabled={working}>{trashMode ? 'My Files' : 'Trash'}</button>
       <input bind:this={fileInput} type="file" multiple style="display:none" on:change={uploadSelected} />
+      <input bind:this={versionInput} type="file" style="display:none" on:change={uploadNewVersion} />
     </div>
   </div>
 
@@ -808,6 +933,7 @@
                     {:else}
                       {#if item.node_type === 'file'}
                         <button class="btn" on:click={() => download(item)}>Download</button>
+                        <button class="btn ghost" on:click={() => openVersionHistory(item)} disabled={working}>Versions</button>
                       {/if}
                       <button class="btn ghost" on:click={() => renameItem(item)} disabled={working}>Rename</button>
                       <button class="btn ghost" on:click={() => moveItem(item)} disabled={working}>Move</button>
@@ -824,4 +950,51 @@
       </div>
     </div>
   </section>
+
+  {#if versionFile}
+    <div class="modal-backdrop version-history-backdrop" role="presentation" on:click={closeVersionHistory}>
+      <section class="version-history-modal" role="dialog" aria-modal="true" aria-labelledby="version-history-title" on:click|stopPropagation>
+        <div class="version-history-head">
+          <div>
+            <div class="eyebrow">File versions</div>
+            <h2 id="version-history-title">{versionFile.name}</h2>
+            <p class="muted">Preserved revisions stored with {sourceLabel(versionFile.provider)}.</p>
+          </div>
+          <button class="modal-close" aria-label="Close version history" on:click={closeVersionHistory} disabled={versionUploading}>×</button>
+        </div>
+
+        <div class="version-history-toolbar">
+          <span class="muted">{versions.length} version{versions.length === 1 ? '' : 's'}</span>
+          <button class="btn primary" on:click={chooseNewVersion} disabled={versionUploading || working}>Upload new version</button>
+        </div>
+
+        {#if versionsLoading}
+          <LoadingState label="Loading version history…" />
+        {:else if versions.length === 0}
+          <div class="activity-empty">No version history is available for this file yet.</div>
+        {:else}
+          <div class="version-history-list">
+            {#each versions as version}
+              <article class="version-history-row">
+                <div class="version-number">
+                  <strong>Version {version.version_number}</strong>
+                  {#if version.is_current}<span class="pill">Current</span>{/if}
+                </div>
+                <div class="version-meta">
+                  <span>{new Date(version.created_at).toLocaleString()}</span>
+                  <span>{formatBytes(version.size_bytes)}</span>
+                  <span>{sourceLabel(version.provider)}</span>
+                </div>
+                <button class="btn ghost" on:click={() => downloadVersion(version)} disabled={!version.downloadable || versionUploading}>
+                  Download
+                </button>
+              </article>
+            {/each}
+          </div>
+        {/if}
+
+        <p class="version-history-note">Uploading a new version replaces the current file contents while preserving the prior Google Drive revision for download.</p>
+      </section>
+    </div>
+  {/if}
 </AppShell>
