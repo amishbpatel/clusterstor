@@ -85,6 +85,9 @@ func (s *Service) BeginGoogleUpload(ctx context.Context, userID string, input Up
 	if input.SizeBytes < 0 { return UploadSession{}, errors.New("file size must not be negative") }
 	contentType := strings.TrimSpace(input.ContentType)
 	if contentType == "" { contentType = "application/octet-stream" }
+	if _, err := s.CheckUploadCapacity(ctx, userID, "google_drive", input.SizeBytes); err != nil {
+		return UploadSession{}, err
+	}
 	accountID, token, err := s.googleCredential(ctx, userID)
 	if err != nil { return UploadSession{}, err }
 	token, err = s.ensureGoogleAccessToken(ctx, accountID, token)
