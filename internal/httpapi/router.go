@@ -293,6 +293,8 @@ func handleGoogleChanges(service *providers.Service) http.HandlerFunc {
 		user, _ := r.Context().Value(userContextKey{}).(auth.User)
 		result, err := service.SyncGoogleChanges(r.Context(), user.ID, 4)
 		switch {
+		case errors.Is(err, providers.ErrProviderChangeCursorMigrationRequired):
+			writeError(w,http.StatusServiceUnavailable,"migration_required","database migration 000008_provider_change_cursor.up.sql is required")
 		case errors.Is(err, providers.ErrProviderAccountNotFound):
 			writeError(w,http.StatusNotFound,"provider_not_connected","google drive is not connected")
 		case errors.Is(err, providers.ErrProviderNotConfigured):
