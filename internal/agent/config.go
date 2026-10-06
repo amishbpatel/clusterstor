@@ -16,6 +16,8 @@ type Config struct {
 	Platform string `json:"platform"`
 	AgentVersion string `json:"agent_version"`
 	SyncRoot string `json:"sync_root"`
+	DriveName string `json:"drive_name"`
+	DriveLetter string `json:"drive_letter"`
 	PeerContributionEnabled bool `json:"peer_contribution_enabled"`
 	PeerContributionBytes int64 `json:"peer_contribution_bytes"`
 }
