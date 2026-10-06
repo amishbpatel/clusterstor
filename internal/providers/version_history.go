@@ -209,6 +209,41 @@ func (s *Service) BeginGoogleVersionUpload(ctx context.Context, userID, nodeID, 
 	},nil
 }
 
+func (s *Service) RecoverGoogleVersionUpload(ctx context.Context, userID,nodeID string, expectedSize int64) (FinalizedUpload,error) {
+	nodeID=strings.TrimSpace(nodeID)
+	if nodeID=="" { return FinalizedUpload{},ErrVersionHistoryNotFound }
+	if expectedSize<0 { return FinalizedUpload{},errors.New("file size must not be negative") }
+
+	accountID,token,err:=s.googleCredential(ctx,userID)
+	if err!=nil { return FinalizedUpload{},err }
+	token,err=s.ensureGoogleAccessToken(ctx,accountID,token)
+	if err!=nil { return FinalizedUpload{},err }
+
+	var providerItemID,currentRevisionID string
+	err=s.pool.QueryRow(ctx,`
+		SELECT pi.provider_item_id,COALESCE(so.provider_revision_id,'')
+		FROM nodes n
+		JOIN provider_items pi ON pi.node_id=n.id AND pi.provider_account_id=$3::uuid
+		LEFT JOIN storage_objects so
+		  ON so.version_id=n.current_version_id
+		 AND so.provider_account_id=$3::uuid
+		 AND so.state='available'
+		 AND so.deleted_at IS NULL
+		WHERE n.id=$1::uuid AND n.user_id=$2::uuid AND n.node_type='file' AND n.deleted_at IS NULL
+		ORDER BY so.verified_at DESC NULLS LAST,so.created_at DESC
+		LIMIT 1`,nodeID,userID,accountID).Scan(&providerItemID,&currentRevisionID)
+	if errors.Is(err,pgx.ErrNoRows) { return FinalizedUpload{},ErrVersionHistoryNotFound }
+	if err!=nil { return FinalizedUpload{},fmt.Errorf("resolve version recovery target: %w",err) }
+
+	file,err:=s.fetchGoogleFile(ctx,token.AccessToken,providerItemID)
+	if err!=nil { return FinalizedUpload{},err }
+	size,ok:=parseOptionalInt64(file.Size)
+	if !ok || size!=expectedSize || strings.TrimSpace(file.HeadRevisionID)=="" || strings.TrimSpace(file.HeadRevisionID)==strings.TrimSpace(currentRevisionID) {
+		return FinalizedUpload{},ErrVersionHistoryUnavailable
+	}
+	return s.FinalizeGoogleUpload(ctx,userID,FinalizeUploadInput{ProviderItemID:providerItemID})
+}
+
 func (s *Service) ListFileVersions(ctx context.Context, userID, nodeID string) ([]FileVersion,error) {
 	nodeID = strings.TrimSpace(nodeID)
 	if nodeID=="" { return nil,ErrVersionHistoryNotFound }
