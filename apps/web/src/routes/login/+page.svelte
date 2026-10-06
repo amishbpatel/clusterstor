@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { login } from '$lib/api';
 
   let email = '';
@@ -12,7 +13,8 @@
     busy = true;
     try {
       await login(email, password);
-      goto('/dashboard');
+      const next = $page.url.searchParams.get('next');
+      goto(next && next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard');
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unable to sign in.';
     } finally {
