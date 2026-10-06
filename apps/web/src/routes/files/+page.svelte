@@ -175,6 +175,14 @@
     return [folderPath, ...children.flatMap((child) => collectFolders(child, folderPath))];
   }
 
+  async function ensureSubtreeLoaded(item: FileItem) {
+    if (item.node_type !== 'folder') return;
+    const children = await loadFolder(item, true);
+    for (const child of children) {
+      if (child.node_type === 'folder') await ensureSubtreeLoaded(child);
+    }
+  }
+
   async function createFolder() {
     const name = window.prompt('Folder name');
     if (!name?.trim()) return;
@@ -227,6 +235,15 @@
     error = ''; success = '';
     uploadProgress = 0;
     try {
+      const requestedBytes = files.reduce((sum, file) => sum + file.size, 0);
+      const capacity = await api<UploadCapacity>('/api/v1/uploads/preflight', {
+        method: 'POST',
+        body: JSON.stringify({ provider: 'google_drive', size_bytes: requestedBytes })
+      });
+      if (!capacity.allowed) {
+        throw new Error(`Google Drive has ${formatBytes(capacity.free_bytes)} free; this upload requires ${formatBytes(requestedBytes)}.`);
+      }
+
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
         uploadLabel = files.length === 1 ? `Uploading ${file.name}` : `Uploading ${index + 1} of ${files.length}: ${file.name}`;
@@ -350,7 +367,7 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  function folderTreeRows(allItems: FileItem[], managedRootID: string, expanded: Set<string>) {
+  function folderTreeRows(allItems: FileItem[], managedRootID: string, expanded: Set<string>, loaded: Set<string>) {
     const rows: Array<{ folder: FileItem; depth: number; hasChildren: boolean }> = [];
     if (!managedRootID) return rows;
     const childrenOf = (parentProviderID: string) =>
@@ -361,7 +378,7 @@
     const walk = (parentProviderID: string, depth: number) => {
       for (const folder of childrenOf(parentProviderID)) {
         const children = childrenOf(folder.provider_item_id);
-        rows.push({ folder, depth, hasChildren: children.length > 0 });
+        rows.push({ folder, depth, hasChildren: children.length > 0 || !loaded.has(folder.node_id) });
         if (expanded.has(folder.node_id)) walk(folder.provider_item_id, depth + 1);
       }
     };
@@ -369,10 +386,20 @@
     return rows;
   }
 
-  function toggleTreeFolder(folder: FileItem) {
+  async function toggleTreeFolder(folder: FileItem) {
     const next = new Set(expandedFolders);
-    if (next.has(folder.node_id)) next.delete(folder.node_id); else next.add(folder.node_id);
-    expandedFolders = next;
+    if (next.has(folder.node_id)) {
+      next.delete(folder.node_id);
+      expandedFolders = next;
+      return;
+    }
+    try {
+      await loadFolder(folder, false);
+      next.add(folder.node_id);
+      expandedFolders = next;
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to load folder tree.';
+    }
   }
 
   function startInternalDrag(event: DragEvent, item: FileItem) {
@@ -467,9 +494,10 @@
     finally { working = false; }
   }
 
-  function showFiles() {
+  async function showFiles() {
     trashMode = false;
     selected = new Set();
+    await goRoot();
   }
 
   async function restoreItem(item: FileItem) {
@@ -517,6 +545,9 @@
     working = true;
     error = ''; success = '';
     try {
+      for (const item of chosen) {
+        if (item.node_type === 'folder') await ensureSubtreeLoaded(item);
+      }
       const files = chosen.flatMap((item) => collectFiles(item));
       if (files.length === 0) throw new Error('The selected folder does not contain downloadable files.');
       if (chosen.length === 1 && chosen[0].node_type === 'file') {
@@ -635,7 +666,7 @@
     let socket: WebSocket | null = null;
     let closed = false;
     openEventSocket(() => {
-      if (!working) load();
+      if (!working) refreshVisibleData(false);
     }).then((value) => {
       if (closed) value.close();
       else socket = value;
