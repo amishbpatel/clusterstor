@@ -285,7 +285,7 @@ html { scroll-behavior:smooth; }
   border-radius:999px;
   background:linear-gradient(100deg,#5b8cff,#51dcff);
   color:#06101f !important;
-  font-size:.66rem;
+  font-size:.72rem;
   font-weight:900;
   letter-spacing:.08em;
   vertical-align:middle;
@@ -507,7 +507,7 @@ html { scroll-behavior:smooth; }
 .folder-tree-heading {
   padding:3px 7px 8px;
   color:#7f91b4;
-  font-size:.61rem;
+  font-size:.67rem;
   font-weight:800;
   text-transform:uppercase;
   letter-spacing:.08em;
@@ -626,7 +626,7 @@ html { scroll-behavior:smooth; }
 .storage-total-copy {
   display:grid;
   justify-items:end;
-  gap:1px;
+  gap:2px;
 }
 .storage-total-copy strong {
   font-size:1.2rem;
@@ -1177,7 +1177,7 @@ html { scroll-behavior:smooth; }
 }
 .activity-when span {
   color:#7184a6;
-  font-size:.72rem;
+  font-size:.66rem;
 }
 .activity-main {
   min-width:0;
@@ -1211,7 +1211,7 @@ html { scroll-behavior:smooth; }
   border-radius:999px;
   background:rgba(37,63,108,.42);
   color:#b9ceef;
-  font-size:.67rem;
+  font-size:.61rem;
   font-weight:800;
   white-space:nowrap;
 }
