@@ -18,8 +18,17 @@ type DashboardLargestFile struct {
 	SizeBytes int64 `json:"size_bytes"`
 }
 
+type DashboardFileTypeFile struct {
+	FileType string `json:"file_type"`
+	NodeID string `json:"node_id"`
+	Name string `json:"name"`
+	Provider string `json:"provider"`
+	SizeBytes int64 `json:"size_bytes"`
+}
+
 type DashboardFileStats struct {
 	FileTypes []DashboardFileType `json:"file_types"`
+	FileTypeFiles []DashboardFileTypeFile `json:"file_type_files"`
 	LargestFiles []DashboardLargestFile `json:"largest_files"`
 }
 
@@ -73,6 +82,63 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 	}
 	if err := typeRows.Err(); err != nil { return DashboardFileStats{}, fmt.Errorf("iterate dashboard file types: %w", err) }
 
+	fileTypeFileRows, err := s.pool.Query(ctx, `
+		WITH RECURSIVE managed_items AS (
+			SELECT pi.provider_account_id,pi.node_id,pi.provider_item_id,pi.provider_parent_item_id,pi.size_bytes
+			FROM provider_items pi
+			JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+			WHERE pa.user_id=$1::uuid
+			  AND pa.status='connected'
+			  AND pa.disconnected_at IS NULL
+			  AND pa.root_provider_item_id IS NOT NULL
+			  AND pi.provider_parent_item_id=pa.root_provider_item_id
+			UNION ALL
+			SELECT child.provider_account_id,child.node_id,child.provider_item_id,child.provider_parent_item_id,child.size_bytes
+			FROM provider_items child
+			JOIN managed_items parent
+			  ON parent.provider_account_id=child.provider_account_id
+			 AND parent.provider_item_id=child.provider_parent_item_id
+		),
+		typed AS (
+			SELECT
+				CASE
+					WHEN n.name LIKE '%.%' AND right(n.name,1) <> '.'
+						THEN upper(regexp_replace(n.name, '^.*\\.', ''))
+					ELSE 'OTHER'
+				END AS file_type,
+				n.id::text AS node_id,
+				n.name,
+				pa.provider,
+				COALESCE(mi.size_bytes,0)::bigint AS size_bytes
+			FROM managed_items mi
+			JOIN nodes n ON n.id=mi.node_id
+			JOIN provider_accounts pa ON pa.id=mi.provider_account_id
+			WHERE n.user_id=$1::uuid
+			  AND n.node_type='file'
+			  AND n.deleted_at IS NULL
+			  AND n.state='active'
+		),
+		ranked AS (
+			SELECT *, ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY size_bytes DESC,name ASC) AS rank
+			FROM typed
+		)
+		SELECT file_type,node_id,name,provider,size_bytes
+		FROM ranked
+		WHERE rank <= 5
+		ORDER BY file_type,rank`, userID)
+	if err != nil { return DashboardFileStats{}, fmt.Errorf("dashboard file type files: %w", err) }
+	defer fileTypeFileRows.Close()
+
+	fileTypeFiles := make([]DashboardFileTypeFile, 0)
+	for fileTypeFileRows.Next() {
+		var item DashboardFileTypeFile
+		if err := fileTypeFileRows.Scan(&item.FileType,&item.NodeID,&item.Name,&item.Provider,&item.SizeBytes); err != nil {
+			return DashboardFileStats{}, fmt.Errorf("scan dashboard file type file: %w", err)
+		}
+		fileTypeFiles = append(fileTypeFiles,item)
+	}
+	if err := fileTypeFileRows.Err(); err != nil { return DashboardFileStats{}, fmt.Errorf("iterate dashboard file type files: %w", err) }
+
 	fileRows, err := s.pool.Query(ctx, `
 		WITH RECURSIVE managed_items AS (
 			SELECT pi.provider_account_id,pi.node_id,pi.provider_item_id,pi.provider_parent_item_id,pi.size_bytes
@@ -113,5 +179,5 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 	}
 	if err := fileRows.Err(); err != nil { return DashboardFileStats{}, fmt.Errorf("iterate dashboard largest files: %w", err) }
 
-	return DashboardFileStats{FileTypes:fileTypes,LargestFiles:largest},nil
+	return DashboardFileStats{FileTypes:fileTypes,FileTypeFiles:fileTypeFiles,LargestFiles:largest},nil
 }
