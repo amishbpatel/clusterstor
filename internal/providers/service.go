@@ -60,6 +60,7 @@ type Account struct {
 	QuotaUsedBytes    *int64     `json:"quota_used_bytes,omitempty"`
 	QuotaFreeBytes    *int64     `json:"quota_free_bytes,omitempty"`
 	LastSyncedAt      *time.Time `json:"last_synced_at,omitempty"`
+	ManagedRootReady  bool       `json:"managed_root_ready"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
@@ -272,7 +273,9 @@ func (s *Service) CompleteGoogleOAuth(ctx context.Context, state, code string) (
 func (s *Service) ListAccounts(ctx context.Context, userID string) ([]Account, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id::text,provider,external_account_id,display_name,status,
-		       quota_total_bytes,quota_used_bytes,quota_free_bytes,last_synced_at,created_at,updated_at
+		       quota_total_bytes,quota_used_bytes,quota_free_bytes,last_synced_at,
+		       (root_provider_item_id IS NOT NULL AND btrim(root_provider_item_id) <> '') AS managed_root_ready,
+		       created_at,updated_at
 		FROM provider_accounts
 		WHERE user_id=$1::uuid
 		ORDER BY created_at`, userID)
@@ -286,7 +289,7 @@ func (s *Service) ListAccounts(ctx context.Context, userID string) ([]Account, e
 		var account Account
 		if err := rows.Scan(&account.ID, &account.Provider, &account.ExternalAccountID, &account.DisplayName,
 			&account.Status, &account.QuotaTotalBytes, &account.QuotaUsedBytes, &account.QuotaFreeBytes,
-			&account.LastSyncedAt, &account.CreatedAt, &account.UpdatedAt); err != nil {
+			&account.LastSyncedAt, &account.ManagedRootReady, &account.CreatedAt, &account.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan provider account: %w", err)
 		}
 		accounts = append(accounts, account)
@@ -295,6 +298,23 @@ func (s *Service) ListAccounts(ctx context.Context, userID string) ([]Account, e
 		return nil, fmt.Errorf("iterate provider accounts: %w", err)
 	}
 	return accounts, nil
+}
+
+func (s *Service) DisconnectProvider(ctx context.Context, userID, provider string) error {
+	provider = strings.TrimSpace(provider)
+	if provider == "" { return ErrProviderAccountNotFound }
+	command, err := s.pool.Exec(ctx, `
+		UPDATE provider_accounts
+		SET token_ciphertext=NULL,
+		    status='disconnected',
+		    disconnected_at=now(),
+		    updated_at=now()
+		WHERE user_id=$1::uuid
+		  AND provider=$2
+		  AND disconnected_at IS NULL`, userID, provider)
+	if err != nil { return fmt.Errorf("disconnect provider: %w", err) }
+	if command.RowsAffected()==0 { return ErrProviderAccountNotFound }
+	return nil
 }
 
 func (s *Service) exchangeGoogleCode(ctx context.Context, code, redirectURI string) (googleTokenResponse, error) {
