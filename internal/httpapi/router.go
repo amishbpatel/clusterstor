@@ -70,6 +70,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/nodes/{id}/restore", requireUser(authService, http.HandlerFunc(handleRestoreNode(providerService))))
 	mux.Handle("GET /api/v1/events", requireUser(authService, http.HandlerFunc(handleAccountEvents(eventService))))
 	mux.Handle("GET /api/v1/dashboard/recent", requireUser(authService, http.HandlerFunc(handleRecentDashboard(eventService))))
+	mux.Handle("GET /api/v1/dashboard/files", requireUser(authService, http.HandlerFunc(handleDashboardFileStats(providerService))))
 	mux.Handle("POST /api/v1/downloads/record", requireUser(authService, http.HandlerFunc(handleRecordDownload(eventService))))
 	mux.Handle("POST /api/v1/events/socket-ticket", requireUser(authService, http.HandlerFunc(handleEventSocketTicket(eventService))))
 	mux.HandleFunc("GET /api/v1/events/socket", handleEventSocket(eventService, eventBroker))
@@ -594,6 +595,19 @@ func handleRecordDownload(service *events.Service) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+
+func handleDashboardFileStats(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		result, err := service.DashboardFileStats(r.Context(), user.ID, 8)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "unable to load dashboard file statistics")
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
