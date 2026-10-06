@@ -32,7 +32,8 @@ func RunDesktopUI(ctx context.Context,cfg *Config,onExit func()) error {
 
 	pauseLabel:="Pause sync"
 	if cfg.SyncPaused { pauseLabel="Resume sync" }
-	pause:=menu.Add(pauseLabel,func(){
+	var pause *systray.MenuItem
+	pause=menu.Add(pauseLabel,func(){
 		cfg.SyncPaused=!cfg.SyncPaused
 		if cfg.SyncPaused {
 			pause.SetLabel("Resume sync")
