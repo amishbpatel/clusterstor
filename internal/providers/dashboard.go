@@ -59,7 +59,8 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 		  AND n.deleted_at IS NULL
 		  AND n.state='active'
 		GROUP BY file_type
-		ORDER BY total_size_bytes DESC, file_count DESC, file_type ASC`, userID)	if err != nil { return DashboardFileStats{}, fmt.Errorf("dashboard file types: %w", err) }
+		ORDER BY total_size_bytes DESC, file_count DESC, file_type ASC`, userID)
+	if err != nil { return DashboardFileStats{}, fmt.Errorf("dashboard file types: %w", err) }
 	defer typeRows.Close()
 
 	fileTypes := make([]DashboardFileType, 0)
@@ -98,7 +99,8 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 		  AND n.deleted_at IS NULL
 		  AND n.state='active'
 		ORDER BY COALESCE(mi.size_bytes,0) DESC,n.name ASC
-		LIMIT $2`, userID, limit)	if err != nil { return DashboardFileStats{}, fmt.Errorf("dashboard largest files: %w", err) }
+		LIMIT $2`, userID, limit)
+	if err != nil { return DashboardFileStats{}, fmt.Errorf("dashboard largest files: %w", err) }
 	defer fileRows.Close()
 
 	largest := make([]DashboardLargestFile, 0, limit)
