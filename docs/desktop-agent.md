@@ -18,6 +18,8 @@ The current Windows agent slice provides:
 - one-time device credential issuance after approval;
 - Windows DPAPI protection for the device secret at rest;
 - device-authenticated heartbeats that update `last_seen_at`;
+- automatic per-user local `ClusterStor` sync-root creation;
+- persistent local sync journal state stored outside the sync root;
 - revocation through the existing Devices screen;
 - Windows cross-compilation in CI;
 - an Inno Setup developer-preview installer definition.
@@ -43,6 +45,34 @@ The agent does not yet synchronize files. This is intentional: device identity, 
 11. The agent sends periodic device-authenticated heartbeats.
 
 The account password, normal browser session token, provider OAuth tokens, and device secret must never be written to logs.
+
+## Local sync root and journal
+
+After pairing, the agent creates a local ClusterStor folder. The default Windows path is:
+
+```text
+%USERPROFILE%\ClusterStor
+```
+
+A developer can override it with:
+
+```text
+clusterstor-agent.exe --sync-root "D:\ClusterStor"
+```
+
+Internal agent state is deliberately kept outside the sync root so it cannot be uploaded as customer content. On Windows, the local state directory is:
+
+```text
+%LOCALAPPDATA%\ClusterStor
+```
+
+The first persistent sync journal is:
+
+```text
+%LOCALAPPDATA%\ClusterStor\sync-journal.json
+```
+
+The journal currently records the device identity, sync root, schema version, logical item map, pending-operation queue, and generation metadata. The item map and operation queue are empty until the filesystem watcher and sync engine are introduced.
 
 ## Windows build
 
