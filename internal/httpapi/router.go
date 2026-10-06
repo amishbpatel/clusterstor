@@ -56,6 +56,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/oauth/start", requireUser(authService, http.HandlerFunc(handleGoogleOAuthStart(providerService))))
 	mux.HandleFunc("GET /api/v1/providers/google_drive/callback", handleGoogleOAuthCallback(providerService))
 	mux.Handle("GET /api/v1/providers", requireUser(authService, http.HandlerFunc(handleListProviders(providerService))))
+	mux.Handle("DELETE /api/v1/providers/{provider}", requireUser(authService, http.HandlerFunc(handleDisconnectProvider(providerService))))
 	mux.Handle("GET /api/v1/providers/google_drive/files", requireUser(authService, http.HandlerFunc(handleGoogleDriveFiles(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/changes", requireUser(authService, http.HandlerFunc(handleGoogleChanges(providerService))))
 	mux.Handle("GET /api/v1/files", requireUser(authService, http.HandlerFunc(handleManagedFiles(providerService))))
@@ -273,7 +274,7 @@ func handleGoogleOAuthCallback(service *providers.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to complete google drive connection")
 		default:
 			if target := service.PublicBaseURL(); target != "" {
-				http.Redirect(w, r, target+"/dashboard?connected=google_drive", http.StatusFound)
+				http.Redirect(w, r, target+"/providers?connected=google_drive", http.StatusFound)
 				return
 			}
 			writeJSON(w, http.StatusOK, account)
@@ -290,6 +291,27 @@ func handleListProviders(service *providers.Service) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"providers": accounts})
+	}
+}
+
+
+func handleDisconnectProvider(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		provider := strings.TrimSpace(r.PathValue("provider"))
+		if provider != "google_drive" {
+			writeError(w,http.StatusBadRequest,"unsupported_provider","this provider cannot be disconnected yet")
+			return
+		}
+		if err := service.DisconnectProvider(r.Context(),user.ID,provider); err != nil {
+			if errors.Is(err,providers.ErrProviderAccountNotFound) {
+				writeError(w,http.StatusNotFound,"provider_not_connected","provider is not connected")
+				return
+			}
+			writeError(w,http.StatusInternalServerError,"internal_error","unable to disconnect provider")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
