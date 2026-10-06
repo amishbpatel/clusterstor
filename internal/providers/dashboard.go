@@ -28,27 +28,38 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 	if limit > 25 { limit = 25 }
 
 	typeRows, err := s.pool.Query(ctx, `
+		WITH RECURSIVE managed_items AS (
+			SELECT pi.provider_account_id,pi.node_id,pi.provider_item_id,pi.provider_parent_item_id,pi.size_bytes
+			FROM provider_items pi
+			JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+			WHERE pa.user_id=$1::uuid
+			  AND pa.status='connected'
+			  AND pa.disconnected_at IS NULL
+			  AND pa.root_provider_item_id IS NOT NULL
+			  AND pi.provider_parent_item_id=pa.root_provider_item_id
+			UNION ALL
+			SELECT child.provider_account_id,child.node_id,child.provider_item_id,child.provider_parent_item_id,child.size_bytes
+			FROM provider_items child
+			JOIN managed_items parent
+			  ON parent.provider_account_id=child.provider_account_id
+			 AND parent.provider_item_id=child.provider_parent_item_id
+		)
 		SELECT
 			CASE
 				WHEN n.name LIKE '%.%' AND right(n.name,1) <> '.'
-					THEN upper(regexp_replace(n.name, '^.*\\.', ''))
+					THEN upper(regexp_replace(n.name, '^.*\.', ''))
 				ELSE 'OTHER'
 			END AS file_type,
 			COUNT(*)::bigint AS file_count,
-			COALESCE(SUM(pi.size_bytes),0)::bigint AS total_size_bytes
-		FROM nodes n
-		JOIN provider_items pi ON pi.node_id=n.id
-		JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+			COALESCE(SUM(mi.size_bytes),0)::bigint AS total_size_bytes
+		FROM managed_items mi
+		JOIN nodes n ON n.id=mi.node_id
 		WHERE n.user_id=$1::uuid
 		  AND n.node_type='file'
 		  AND n.deleted_at IS NULL
 		  AND n.state='active'
-		  AND pa.user_id=$1::uuid
-		  AND pa.status='connected'
-		  AND pa.disconnected_at IS NULL
 		GROUP BY file_type
-		ORDER BY total_size_bytes DESC, file_count DESC, file_type ASC`, userID)
-	if err != nil { return DashboardFileStats{}, fmt.Errorf("dashboard file types: %w", err) }
+		ORDER BY total_size_bytes DESC, file_count DESC, file_type ASC`, userID)	if err != nil { return DashboardFileStats{}, fmt.Errorf("dashboard file types: %w", err) }
 	defer typeRows.Close()
 
 	fileTypes := make([]DashboardFileType, 0)
@@ -62,20 +73,32 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 	if err := typeRows.Err(); err != nil { return DashboardFileStats{}, fmt.Errorf("iterate dashboard file types: %w", err) }
 
 	fileRows, err := s.pool.Query(ctx, `
-		SELECT n.id::text,n.name,pa.provider,COALESCE(pi.size_bytes,0)::bigint
-		FROM nodes n
-		JOIN provider_items pi ON pi.node_id=n.id
-		JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+		WITH RECURSIVE managed_items AS (
+			SELECT pi.provider_account_id,pi.node_id,pi.provider_item_id,pi.provider_parent_item_id,pi.size_bytes
+			FROM provider_items pi
+			JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+			WHERE pa.user_id=$1::uuid
+			  AND pa.status='connected'
+			  AND pa.disconnected_at IS NULL
+			  AND pa.root_provider_item_id IS NOT NULL
+			  AND pi.provider_parent_item_id=pa.root_provider_item_id
+			UNION ALL
+			SELECT child.provider_account_id,child.node_id,child.provider_item_id,child.provider_parent_item_id,child.size_bytes
+			FROM provider_items child
+			JOIN managed_items parent
+			  ON parent.provider_account_id=child.provider_account_id
+			 AND parent.provider_item_id=child.provider_parent_item_id
+		)
+		SELECT n.id::text,n.name,pa.provider,COALESCE(mi.size_bytes,0)::bigint
+		FROM managed_items mi
+		JOIN nodes n ON n.id=mi.node_id
+		JOIN provider_accounts pa ON pa.id=mi.provider_account_id
 		WHERE n.user_id=$1::uuid
 		  AND n.node_type='file'
 		  AND n.deleted_at IS NULL
 		  AND n.state='active'
-		  AND pa.user_id=$1::uuid
-		  AND pa.status='connected'
-		  AND pa.disconnected_at IS NULL
-		ORDER BY COALESCE(pi.size_bytes,0) DESC,n.name ASC
-		LIMIT $2`, userID, limit)
-	if err != nil { return DashboardFileStats{}, fmt.Errorf("dashboard largest files: %w", err) }
+		ORDER BY COALESCE(mi.size_bytes,0) DESC,n.name ASC
+		LIMIT $2`, userID, limit)	if err != nil { return DashboardFileStats{}, fmt.Errorf("dashboard largest files: %w", err) }
 	defer fileRows.Close()
 
 	largest := make([]DashboardLargestFile, 0, limit)
