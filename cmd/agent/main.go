@@ -18,13 +18,16 @@ import (
 	"github.com/amishbpatel/clusterstor/internal/agent"
 )
 
-const agentVersion = "0.3.0-dev"
+const agentVersion = "0.4.0-dev"
 
 func main() {
 	defaultAPI:=strings.TrimSpace(os.Getenv("CLUSTERSTOR_API_BASE_URL"))
 	if defaultAPI=="" { defaultAPI="http://localhost:8080" }
+	defaultWeb:=strings.TrimSpace(os.Getenv("CLUSTERSTOR_PUBLIC_BASE_URL"))
+	if defaultWeb=="" { defaultWeb="http://localhost:5173" }
 
 	apiBase:=flag.String("api",defaultAPI,"ClusterStor API base URL")
+	webBase:=flag.String("web",defaultWeb,"ClusterStor web base URL")
 	syncRootFlag:=flag.String("sync-root","","internal ClusterStor drive backing folder")
 	driveNameFlag:=flag.String("drive-name","","Windows drive display name")
 	driveLetterFlag:=flag.String("drive-letter","","Windows drive letter")
@@ -37,6 +40,7 @@ func main() {
 	cfg,err:=agent.LoadConfig()
 	if err!=nil { log.Fatal(err) }
 	if cfg.APIBaseURL=="" { cfg.APIBaseURL=*apiBase }
+	if cfg.WebBaseURL=="" { cfg.WebBaseURL=*webBase }
 
 	client:=agent.NewClient(cfg.APIBaseURL)
 
@@ -102,12 +106,23 @@ func main() {
 	log.Printf("ClusterStor agent connected as %q (%s)",cfg.DeviceName,cfg.Platform)
 	if *once { return }
 
+	go runHeartbeatLoop(ctx,client,cfg,secret)
+	if runtime.GOOS=="windows" {
+		if err:=agent.RunDesktopUI(ctx,&cfg,stop); err!=nil && ctx.Err()==nil {
+			log.Fatalf("run ClusterStor tray: %v",err)
+		}
+		return
+	}
+	<-ctx.Done()
+	log.Println("ClusterStor agent stopping")
+}
+
+func runHeartbeatLoop(ctx context.Context,client *agent.Client,cfg agent.Config,secret string) {
 	ticker:=time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("ClusterStor agent stopping")
 			return
 		case <-ticker.C:
 			if err:=heartbeat(ctx,client,cfg,secret); err!=nil {
@@ -154,6 +169,7 @@ func pairDevice(ctx context.Context,client *agent.Client,cfg agent.Config) (agen
 		}
 		cfg=agent.Config{
 			APIBaseURL:cfg.APIBaseURL,
+			WebBaseURL:cfg.WebBaseURL,
 			DeviceID:status.Registration.Device.ID,
 			DeviceName:status.Registration.Device.Name,
 			Platform:status.Registration.Device.Platform,
