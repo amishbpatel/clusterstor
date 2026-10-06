@@ -121,9 +121,9 @@ The installer is per-user and does not require administrator privileges. Automat
 
 ## Tray and Settings UX
 
-The production Windows tray menu should stay focused on day-to-day operation:
+The Windows tray shell now implements the day-to-day menu:
 
-- Open ClusterStor folder
+- Open the mapped ClusterStor drive
 - Sync status
 - Pause / Resume sync
 - Activity
@@ -133,9 +133,11 @@ The production Windows tray menu should stay focused on day-to-day operation:
 - Manage plan...
 - Exit ClusterStor
 
+The developer build still has a console window because first-run pairing/drive selection are not yet fully visual. The production build will move those setup steps into the installer/onboarding UI and build the long-running agent as a GUI/background executable.
+
 `Manage plan...` is a convenience shortcut that opens the signed-in web billing screen. Full billing administration belongs under **Settings > Billing** in the ClusterStor account experience rather than being implemented as a complex native tray workflow.
 
-Settings should eventually include:
+The signed-in web Settings screen now provides the account/settings destination for the tray. Its sections are:
 
 - General
 - Sync
@@ -146,7 +148,7 @@ Settings should eventually include:
 - Billing
 - About / Updates
 
-Billing should cover the current plan, provider-adapter entitlement, ClusterStor Cloud capacity, Peer Storage plan, renewal cycle, payment method, invoices/receipts, upgrade/downgrade, and cancellation. The desktop agent must not store payment-card data or billing-provider credentials.
+Billing remains a future implementation phase. It should cover the current plan, provider-adapter entitlement, ClusterStor Cloud capacity, Peer Storage plan, renewal cycle, payment method, invoices/receipts, upgrade/downgrade, and cancellation. The desktop agent must not store payment-card data or billing-provider credentials.
 
 ## Next desktop milestones
 
