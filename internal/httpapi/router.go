@@ -417,11 +417,7 @@ func handleUploadPreflight(service *providers.Service) http.HandlerFunc {
 		result, err := service.CheckUploadCapacity(r.Context(),user.ID,body.Provider,body.SizeBytes)
 		switch {
 		case errors.Is(err, providers.ErrInsufficientProviderSpace):
-			writeJSON(w,http.StatusConflict,map[string]any{
-				"code":"insufficient_storage",
-				"message":"not enough free space in the selected storage provider",
-				"capacity":result,
-			})
+			writeJSON(w,http.StatusOK,result)
 		case errors.Is(err, providers.ErrUnsupportedProvider):
 			writeError(w,http.StatusBadRequest,"unsupported_provider","storage provider is not supported")
 		case errors.Is(err, providers.ErrProviderAccountNotFound):
