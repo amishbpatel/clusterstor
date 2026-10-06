@@ -28,7 +28,7 @@ export type ProviderAccount = {
   last_synced_at?: string | null;
 };
 
-export type DriveItem = {
+export type FileItem = {
   node_id: string;
   provider: string;
   provider_item_id: string;
@@ -38,6 +38,17 @@ export type DriveItem = {
   mime_type?: string;
   size_bytes?: number | null;
   modified_at?: string | null;
+};
+
+export type DriveItem = FileItem;
+
+export type UploadCapacity = {
+  provider: string;
+  requested_bytes: number;
+  total_bytes?: number | null;
+  used_bytes?: number | null;
+  free_bytes?: number | null;
+  allowed: boolean;
 };
 
 export function getToken(): string | null {
