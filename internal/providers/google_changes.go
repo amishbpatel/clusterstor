@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const googleChangesURL = "https://www.googleapis.com/drive/v3/changes"
@@ -165,7 +167,7 @@ func (s *Service) markGoogleItemUnavailable(ctx context.Context, userID, account
 		  AND pi.provider_item_id=$3
 		LIMIT 1`,userID,accountID,providerItemID).Scan(&nodeID)
 	if err!=nil {
-		if strings.Contains(err.Error(),"no rows") { return nil }
+		if err==pgx.ErrNoRows { return nil }
 		return fmt.Errorf("resolve changed google item: %w",err)
 	}
 	if trashed {
@@ -188,7 +190,7 @@ func (s *Service) updateGoogleItemOutsideRoot(ctx context.Context, userID, accou
 		  AND pi.provider_item_id=$3
 		LIMIT 1`,userID,accountID,file.ID).Scan(&nodeID)
 	if err!=nil {
-		if strings.Contains(err.Error(),"no rows") { return nil }
+		if err==pgx.ErrNoRows { return nil }
 		return fmt.Errorf("resolve moved google item: %w",err)
 	}
 	var parent any
