@@ -293,6 +293,89 @@ func (s *Service) ListFileVersions(ctx context.Context, userID, nodeID string) (
 	return versions,nil
 }
 
+func (s *Service) RestoreGoogleVersion(ctx context.Context, userID,nodeID,versionID string) (FinalizedUpload,error) {
+	nodeID=strings.TrimSpace(nodeID)
+	versionID=strings.TrimSpace(versionID)
+	if nodeID=="" || versionID=="" { return FinalizedUpload{},ErrVersionHistoryNotFound }
+
+	if err := s.ensureCurrentGoogleRevisionCaptured(ctx,userID,nodeID); err != nil {
+		return FinalizedUpload{},err
+	}
+
+	var isCurrent bool
+	var providerItemID,mimeType string
+	var sourceSize int64
+	err := s.pool.QueryRow(ctx,`
+		SELECT (n.current_version_id=fv.id),pi.provider_item_id,COALESCE(pi.mime_type,'application/octet-stream'),fv.size_bytes
+		FROM nodes n
+		JOIN file_versions fv ON fv.node_id=n.id
+		JOIN provider_items pi ON pi.node_id=n.id
+		JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+		WHERE n.id=$1::uuid
+		  AND n.user_id=$2::uuid
+		  AND fv.id=$3::uuid
+		  AND n.node_type='file'
+		  AND n.deleted_at IS NULL
+		  AND pa.provider='google_drive'
+		  AND pa.status='connected'
+		  AND pa.disconnected_at IS NULL
+		LIMIT 1`,nodeID,userID,versionID).Scan(&isCurrent,&providerItemID,&mimeType,&sourceSize)
+	if errors.Is(err,pgx.ErrNoRows) { return FinalizedUpload{},ErrVersionHistoryNotFound }
+	if err != nil { return FinalizedUpload{},fmt.Errorf("resolve version restore target: %w",err) }
+	if isCurrent { return FinalizedUpload{},ErrVersionHistoryUnavailable }
+
+	if _, err := s.CheckUploadCapacity(ctx,userID,"google_drive",sourceSize); err != nil {
+		return FinalizedUpload{},err
+	}
+
+	stream,err:=s.OpenGoogleVersionDownload(ctx,userID,nodeID,versionID,"")
+	if err!=nil { return FinalizedUpload{},err }
+	defer stream.Response.Body.Close()
+
+	accountID,token,err:=s.googleCredential(ctx,userID)
+	if err!=nil { return FinalizedUpload{},err }
+	token,err=s.ensureGoogleAccessToken(ctx,accountID,token)
+	if err!=nil { return FinalizedUpload{},err }
+
+	restoreURL:=googleUploadFilesURL+"/"+url.PathEscape(providerItemID)+"?uploadType=media&fields="+url.QueryEscape("id,name,mimeType,parents,size,modifiedTime,headRevisionId")
+	req,err:=http.NewRequestWithContext(ctx,http.MethodPatch,restoreURL,stream.Response.Body)
+	if err!=nil { return FinalizedUpload{},err }
+	req.Header.Set("Authorization","Bearer "+token.AccessToken)
+	req.Header.Set("Content-Type",mimeType)
+	req.ContentLength=sourceSize
+
+	resp,err:=s.httpClient.Do(req)
+	if err!=nil { return FinalizedUpload{},fmt.Errorf("restore google revision: %w",err) }
+	defer resp.Body.Close()
+	body,readErr:=io.ReadAll(io.LimitReader(resp.Body,1<<20))
+	if readErr!=nil { return FinalizedUpload{},fmt.Errorf("read restored google revision: %w",readErr) }
+	if resp.StatusCode<200 || resp.StatusCode>=300 {
+		return FinalizedUpload{},fmt.Errorf("restore google revision: google returned %s",resp.Status)
+	}
+
+	var restored googleFile
+	if err:=json.Unmarshal(body,&restored); err!=nil {
+		return FinalizedUpload{},fmt.Errorf("decode restored google revision: %w",err)
+	}
+	if strings.TrimSpace(restored.ID)=="" { restored.ID=providerItemID }
+
+	result,err:=s.FinalizeGoogleUpload(ctx,userID,FinalizeUploadInput{ProviderItemID:restored.ID})
+	if err!=nil { return FinalizedUpload{},err }
+
+	payload,_:=json.Marshal(map[string]any{
+		"provider":"google_drive",
+		"restored_from_version_id":versionID,
+		"new_version_id":result.VersionID,
+		"size_bytes":result.SizeBytes,
+	})
+	if _,err:=s.pool.Exec(ctx,
+		"INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'file.version.restored','node',$2::uuid,$3::jsonb)",
+		userID,nodeID,string(payload)); err!=nil {
+		return FinalizedUpload{},fmt.Errorf("record restored version event: %w",err)
+	}
+	return result,nil
+}
+
 func (s *Service) OpenGoogleVersionDownload(ctx context.Context, userID,nodeID,versionID,rangeHeader string) (DownloadStream,error) {
 	nodeID=strings.TrimSpace(nodeID)
 	versionID=strings.TrimSpace(versionID)
