@@ -57,6 +57,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.HandleFunc("GET /api/v1/providers/google_drive/callback", handleGoogleOAuthCallback(providerService))
 	mux.Handle("GET /api/v1/providers", requireUser(authService, http.HandlerFunc(handleListProviders(providerService))))
 	mux.Handle("GET /api/v1/providers/google_drive/files", requireUser(authService, http.HandlerFunc(handleGoogleDriveFiles(providerService))))
+	mux.Handle("GET /api/v1/files", requireUser(authService, http.HandlerFunc(handleManagedFiles(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/root", requireUser(authService, http.HandlerFunc(handleEnsureGoogleRoot(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/folders", requireUser(authService, http.HandlerFunc(handleCreateGoogleFolder(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads", requireUser(authService, http.HandlerFunc(handleBeginGoogleUpload(providerService))))
@@ -281,6 +282,41 @@ func handleListProviders(service *providers.Service) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"providers": accounts})
+	}
+}
+
+
+func handleManagedFiles(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pageSize := 0
+		if raw := strings.TrimSpace(r.URL.Query().Get("page_size")); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 1 {
+				writeError(w, http.StatusBadRequest, "invalid_page_size", "page_size must be a positive integer")
+				return
+			}
+			pageSize = value
+		}
+		var parentNodeID *string
+		if raw := strings.TrimSpace(r.URL.Query().Get("parent_node_id")); raw != "" {
+			parentNodeID = &raw
+		}
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		page, err := service.ListManagedFiles(r.Context(), user.ID, parentNodeID, strings.TrimSpace(r.URL.Query().Get("cursor")), pageSize)
+		switch {
+		case errors.Is(err, providers.ErrInvalidProviderParent):
+			writeError(w, http.StatusBadRequest, "invalid_parent", "folder must be inside a ClusterStor managed provider root")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w, http.StatusNotFound, "provider_not_connected", "storage provider is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "provider_not_configured", "storage provider is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w, http.StatusBadGateway, "oauth_refresh_failed", "storage provider credentials could not be refreshed")
+		case err != nil:
+			writeError(w, http.StatusBadGateway, "provider_error", "unable to list managed files")
+		default:
+			writeJSON(w, http.StatusOK, page)
+		}
 	}
 }
 
