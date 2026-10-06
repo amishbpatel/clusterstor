@@ -66,6 +66,9 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/recover", requireUser(authService, http.HandlerFunc(handleRecoverGoogleUpload(providerService))))
 	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService, eventService))))
+	mux.Handle("GET /api/v1/nodes/{id}/versions", requireUser(authService, http.HandlerFunc(handleFileVersions(providerService))))
+	mux.Handle("POST /api/v1/nodes/{id}/versions/uploads", requireUser(authService, http.HandlerFunc(handleBeginVersionUpload(providerService))))
+	mux.Handle("GET /api/v1/nodes/{id}/versions/{versionID}/download", requireUser(authService, http.HandlerFunc(handleVersionDownload(providerService))))
 	mux.Handle("DELETE /api/v1/nodes/{id}", requireUser(authService, http.HandlerFunc(handleDeleteNode(providerService))))
 	mux.Handle("PATCH /api/v1/nodes/{id}/name", requireUser(authService, http.HandlerFunc(handleRenameNode(providerService))))
 	mux.Handle("POST /api/v1/nodes/{id}/move", requireUser(authService, http.HandlerFunc(handleMoveNode(providerService))))
@@ -632,6 +635,81 @@ func handleDeleteNode(service *providers.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadGateway, "provider_error", "unable to delete google drive item")
 		default:
 			writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+		}
+	}
+}
+
+
+func handleFileVersions(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		versions, err := service.ListFileVersions(r.Context(), user.ID, r.PathValue("id"))
+		switch {
+		case errors.Is(err, providers.ErrVersionHistoryNotFound):
+			writeError(w,http.StatusNotFound,"version_history_not_found","file was not found")
+		case err != nil:
+			writeError(w,http.StatusInternalServerError,"internal_error","unable to load version history")
+		default:
+			writeJSON(w,http.StatusOK,map[string]any{"versions":versions})
+		}
+	}
+}
+
+func handleBeginVersionUpload(service *providers.Service) http.HandlerFunc {
+	type request struct {
+		ContentType string `json:"content_type"`
+		SizeBytes int64 `json:"size_bytes"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w,r,&body) { return }
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		session, err := service.BeginGoogleVersionUpload(r.Context(), user.ID, r.PathValue("id"), body.ContentType, body.SizeBytes)
+		switch {
+		case errors.Is(err, providers.ErrVersionHistoryNotFound):
+			writeError(w,http.StatusNotFound,"version_history_not_found","file was not found")
+		case errors.Is(err, providers.ErrVersionHistoryUnavailable):
+			writeError(w,http.StatusBadRequest,"version_history_unavailable","this file cannot be versioned through Google Drive")
+		case errors.Is(err, providers.ErrInsufficientProviderSpace):
+			writeError(w,http.StatusConflict,"insufficient_storage","not enough free space in Google Drive for this version")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w,http.StatusNotFound,"provider_not_connected","google drive is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w,http.StatusServiceUnavailable,"provider_not_configured","google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w,http.StatusBadGateway,"oauth_refresh_failed","google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w,http.StatusBadGateway,"provider_error","unable to start version upload")
+		default:
+			writeJSON(w,http.StatusCreated,session)
+		}
+	}
+}
+
+func handleVersionDownload(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		stream, err := service.OpenGoogleVersionDownload(r.Context(),user.ID,r.PathValue("id"),r.PathValue("versionID"),r.Header.Get("Range"))
+		switch {
+		case errors.Is(err, providers.ErrVersionHistoryNotFound):
+			writeError(w,http.StatusNotFound,"version_not_found","version was not found")
+		case errors.Is(err, providers.ErrVersionHistoryUnavailable):
+			writeError(w,http.StatusGone,"version_unavailable","this historical version is no longer available from the provider")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w,http.StatusServiceUnavailable,"provider_not_configured","google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w,http.StatusBadGateway,"oauth_refresh_failed","google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w,http.StatusBadGateway,"provider_error","unable to open historical version")
+		default:
+			defer stream.Response.Body.Close()
+			for _, header := range []string{"Content-Type","Content-Length","Content-Range","Accept-Ranges","ETag","Last-Modified"} {
+				if value := stream.Response.Header.Get(header); value != "" { w.Header().Set(header,value) }
+			}
+			w.Header().Set("Content-Disposition","attachment; filename*=UTF-8''"+url.PathEscape(stream.Name))
+			w.Header().Set("Cache-Control","private, no-store")
+			w.WriteHeader(stream.Response.StatusCode)
+			_, _ = io.Copy(w,stream.Response.Body)
 		}
 	}
 }
