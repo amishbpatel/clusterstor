@@ -31,8 +31,11 @@
     provider: string;
     size_bytes: number;
   };
+  type FileTypeFile = LargestFile & { file_type: string };
   let fileTypes: FileTypeStat[] = [];
+  let fileTypeFiles: FileTypeFile[] = [];
   let largestFiles: LargestFile[] = [];
+  let expandedFileType = '';
 
   $: google = providers.find((p) => p.provider === 'google_drive');
   $: storageProviders = providers.filter((p) => (p.quota_total_bytes || 0) > 0);
@@ -66,6 +69,14 @@
     return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
   }
 
+  function toggleFileType(fileType: string) {
+    expandedFileType = expandedFileType === fileType ? '' : fileType;
+  }
+
+  function filesForType(fileType: string) {
+    return fileTypeFiles.filter((item) => item.file_type === fileType);
+  }
+
   async function load() {
     error = '';
     try {
@@ -73,12 +84,13 @@
         api<User>('/api/v1/me'),
         api<{ providers: ProviderAccount[] }>('/api/v1/providers'),
         api<{ uploads: RecentActivity[] }>('/api/v1/dashboard/recent'),
-        api<{ file_types: FileTypeStat[]; largest_files: LargestFile[] }>('/api/v1/dashboard/files')
+        api<{ file_types: FileTypeStat[]; file_type_files: FileTypeFile[]; largest_files: LargestFile[] }>('/api/v1/dashboard/files')
       ]);
       user = results[0];
       providers = results[1].providers;
       recentUploads = results[2].uploads;
       fileTypes = results[3].file_types;
+      fileTypeFiles = results[3].file_type_files;
       largestFiles = results[3].largest_files;
     } catch (e) {
       if (!getToken()) {
@@ -210,11 +222,43 @@
               <thead><tr><th>Type</th><th>Files</th><th>Total size</th></tr></thead>
               <tbody>
                 {#each fileTypes as item}
-                  <tr>
-                    <td><span class="file-type-badge">{item.file_type}</span></td>
+                  <tr class="file-type-summary-row" class:expanded={expandedFileType === item.file_type}>
+                    <td>
+                      <button
+                        class="file-type-toggle"
+                        aria-expanded={expandedFileType === item.file_type}
+                        on:click={() => toggleFileType(item.file_type)}
+                      >
+                        <span class="file-type-chevron">{expandedFileType === item.file_type ? '▾' : '▸'}</span>
+                        <span class="file-type-badge">{item.file_type}</span>
+                      </button>
+                    </td>
                     <td>{item.file_count.toLocaleString()}</td>
                     <td>{formatBytes(item.total_size_bytes)}</td>
                   </tr>
+                  {#if expandedFileType === item.file_type}
+                    <tr class="file-type-detail-row">
+                      <td colspan="3">
+                        <div class="file-type-detail">
+                          {#if filesForType(item.file_type).length === 0}
+                            <div class="muted">No indexed files available for this type.</div>
+                          {:else}
+                            <div class="file-type-detail-heading">Largest files in {item.file_type}</div>
+                            <div class="file-type-detail-list">
+                              {#each filesForType(item.file_type) as file}
+                                <div class="file-type-detail-item">
+                                  <strong title={file.name}>{file.name}</strong>
+                                  <span>{formatBytes(file.size_bytes)}</span>
+                                  <span>{providerLabel(file.provider)}</span>
+                                </div>
+                              {/each}
+                            </div>
+                            <div class="file-type-detail-note">Showing up to 5 files. We can change this drill-down to a modal or filtered My Files view later.</div>
+                          {/if}
+                        </div>
+                      </td>
+                    </tr>
+                  {/if}
                 {/each}
               </tbody>
             </table>
