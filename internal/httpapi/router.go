@@ -61,6 +61,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/providers/google_drive/root", requireUser(authService, http.HandlerFunc(handleEnsureGoogleRoot(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/folders", requireUser(authService, http.HandlerFunc(handleCreateGoogleFolder(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads", requireUser(authService, http.HandlerFunc(handleBeginGoogleUpload(providerService))))
+	mux.Handle("POST /api/v1/uploads/preflight", requireUser(authService, http.HandlerFunc(handleUploadPreflight(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/complete", requireUser(authService, http.HandlerFunc(handleFinalizeGoogleUpload(providerService))))
 	mux.Handle("POST /api/v1/providers/google_drive/uploads/recover", requireUser(authService, http.HandlerFunc(handleRecoverGoogleUpload(providerService))))
 	mux.Handle("GET /api/v1/nodes/{id}/download", requireUser(authService, http.HandlerFunc(handleDownloadNode(providerService, eventService))))
@@ -304,6 +305,8 @@ func handleManagedFiles(service *providers.Service) http.HandlerFunc {
 		user, _ := r.Context().Value(userContextKey{}).(auth.User)
 		page, err := service.ListManagedFiles(r.Context(), user.ID, parentNodeID, strings.TrimSpace(r.URL.Query().Get("cursor")), pageSize)
 		switch {
+		case errors.Is(err, providers.ErrInsufficientProviderSpace):
+			writeError(w, http.StatusConflict, "insufficient_storage", "not enough free space in Google Drive for this upload")
 		case errors.Is(err, providers.ErrInvalidProviderParent):
 			writeError(w, http.StatusBadRequest, "invalid_parent", "folder must be inside a ClusterStor managed provider root")
 		case errors.Is(err, providers.ErrProviderAccountNotFound):
@@ -397,6 +400,44 @@ func handleCreateGoogleFolder(service *providers.Service) http.HandlerFunc {
 		}
 	}
 }
+
+func handleUploadPreflight(service *providers.Service) http.HandlerFunc {
+	type request struct {
+		Provider string `json:"provider"`
+		SizeBytes int64 `json:"size_bytes"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		if !decodeJSON(w,r,&body) { return }
+		if body.SizeBytes < 0 {
+			writeError(w,http.StatusBadRequest,"invalid_size","size_bytes must not be negative")
+			return
+		}
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		result, err := service.CheckUploadCapacity(r.Context(),user.ID,body.Provider,body.SizeBytes)
+		switch {
+		case errors.Is(err, providers.ErrInsufficientProviderSpace):
+			writeJSON(w,http.StatusConflict,map[string]any{
+				"code":"insufficient_storage",
+				"message":"not enough free space in the selected storage provider",
+				"capacity":result,
+			})
+		case errors.Is(err, providers.ErrUnsupportedProvider):
+			writeError(w,http.StatusBadRequest,"unsupported_provider","storage provider is not supported")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w,http.StatusNotFound,"provider_not_connected","storage provider is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w,http.StatusServiceUnavailable,"provider_not_configured","storage provider is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w,http.StatusBadGateway,"oauth_refresh_failed","storage provider credentials could not be refreshed")
+		case err != nil:
+			writeError(w,http.StatusBadGateway,"provider_error","unable to check provider capacity")
+		default:
+			writeJSON(w,http.StatusOK,result)
+		}
+	}
+}
+
 
 func handleBeginGoogleUpload(service *providers.Service) http.HandlerFunc {
 	type request struct {
