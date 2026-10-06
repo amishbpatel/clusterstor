@@ -1721,3 +1721,36 @@ html { scroll-behavior:smooth; }
     flex-direction:column;
   }
 }
+
+
+/* Desktop device pairing */
+.device-pair-card {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:12px;
+  padding:12px 14px;
+  border:1px solid rgba(91,140,255,.42);
+  border-radius:11px;
+  background:linear-gradient(90deg,rgba(36,72,126,.28),rgba(13,25,47,.82));
+}
+.device-pair-card > div {
+  display:grid;
+  gap:4px;
+  min-width:0;
+}
+.device-pair-card strong {
+  color:#e7efff;
+  font-size:.8rem;
+}
+.device-pair-card span:not(.device-status) {
+  color:#8497b8;
+  font-size:.7rem;
+}
+@media (max-width:640px) {
+  .device-pair-card {
+    align-items:flex-start;
+    flex-direction:column;
+  }
+}
