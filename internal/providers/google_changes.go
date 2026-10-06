@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,9 +11,13 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const googleChangesURL = "https://www.googleapis.com/drive/v3/changes"
+
+var ErrProviderChangeCursorMigrationRequired = errors.New("provider change cursor migration required")
+var ErrGoogleChangeCursorInvalid = errors.New("google change cursor invalid")
 
 type googleChange struct {
 	FileID string `json:"fileId"`
@@ -44,6 +49,10 @@ func (s *Service) SyncGoogleChanges(ctx context.Context, userID string, maxPages
 
 	var cursor *string
 	if err := s.pool.QueryRow(ctx,"SELECT change_cursor FROM provider_accounts WHERE id=$1::uuid",accountID).Scan(&cursor); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err,&pgErr) && pgErr.Code=="42703" {
+			return GoogleChangeSyncResult{},ErrProviderChangeCursorMigrationRequired
+		}
 		return GoogleChangeSyncResult{},fmt.Errorf("load google change cursor: %w",err)
 	}
 	if cursor == nil || strings.TrimSpace(*cursor)=="" {
@@ -59,6 +68,14 @@ func (s *Service) SyncGoogleChanges(ctx context.Context, userID string, maxPages
 	processed := 0
 	for pageIndex:=0; pageIndex<maxPages; pageIndex++ {
 		page, err := s.fetchGoogleChanges(ctx,token.AccessToken,pageToken)
+		if errors.Is(err,ErrGoogleChangeCursorInvalid) {
+			start, resetErr := s.googleStartPageToken(ctx,token.AccessToken)
+			if resetErr != nil { return GoogleChangeSyncResult{},resetErr }
+			if _, resetErr = s.pool.Exec(ctx,"UPDATE provider_accounts SET change_cursor=$1,updated_at=now() WHERE id=$2::uuid",start,accountID); resetErr != nil {
+				return GoogleChangeSyncResult{},fmt.Errorf("reset google change cursor: %w",resetErr)
+			}
+			return GoogleChangeSyncResult{Initialized:true},nil
+		}
 		if err != nil { return GoogleChangeSyncResult{},err }
 
 		for _, change := range page.Changes {
@@ -147,6 +164,18 @@ func (s *Service) fetchGoogleChanges(ctx context.Context, accessToken, pageToken
 	if err != nil { return googleChangesResponse{},fmt.Errorf("list google changes: %w",err) }
 	defer resp.Body.Close()
 	if resp.StatusCode<200 || resp.StatusCode>=300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body,1<<20))
+		if resp.StatusCode==http.StatusGone {
+			return googleChangesResponse{},ErrGoogleChangeCursorInvalid
+		}
+		var apiErr struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(body,&apiErr)==nil && strings.TrimSpace(apiErr.Error.Message)!="" {
+			return googleChangesResponse{},fmt.Errorf("list google changes: google returned %s: %s",resp.Status,strings.TrimSpace(apiErr.Error.Message))
+		}
 		return googleChangesResponse{},fmt.Errorf("list google changes: google returned %s",resp.Status)
 	}
 	var page googleChangesResponse
