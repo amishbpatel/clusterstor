@@ -45,6 +45,12 @@ func (s *Service) FinalizeGoogleUpload(ctx context.Context, userID string, input
 	if len(items) != 1 { return FinalizedUpload{}, errors.New("uploaded file mapping failed") }
 	size := int64(0)
 	if items[0].SizeBytes != nil { size = *items[0].SizeBytes }
+	revisionID := strings.TrimSpace(file.HeadRevisionID)
+	if revisionID != "" {
+		if err := s.keepGoogleRevision(ctx, token.AccessToken, providerItemID, revisionID); err != nil {
+			return FinalizedUpload{}, err
+		}
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil { return FinalizedUpload{}, fmt.Errorf("begin upload finalize: %w", err) }
 	defer tx.Rollback(ctx)
@@ -54,11 +60,11 @@ func (s *Service) FinalizeGoogleUpload(ctx context.Context, userID string, input
 	var versionID string
 	err = tx.QueryRow(ctx, "INSERT INTO file_versions(node_id,version_number,size_bytes) VALUES ($1::uuid,$2,$3) RETURNING id::text", items[0].NodeID, nextVersion, size).Scan(&versionID)
 	if err != nil { return FinalizedUpload{}, fmt.Errorf("create file version: %w", err) }
-	_, err = tx.Exec(ctx, "INSERT INTO storage_objects(version_id,storage_class,provider_account_id,provider_object_id,size_bytes,encryption_mode,state,verified_at) VALUES ($1::uuid,'provider',$2::uuid,$3,$4,'provider_native','available',now())", versionID, accountID, providerItemID, size)
+	_, err = tx.Exec(ctx, "INSERT INTO storage_objects(version_id,storage_class,provider_account_id,provider_object_id,provider_revision_id,size_bytes,encryption_mode,state,verified_at) VALUES ($1::uuid,'provider',$2::uuid,$3,$4,$5,'provider_native','available',now())", versionID, accountID, providerItemID, nullableString(revisionID), size)
 	if err != nil { return FinalizedUpload{}, fmt.Errorf("create storage object: %w", err) }
 	_, err = tx.Exec(ctx, "UPDATE nodes SET current_version_id=$1::uuid,state='active',updated_at=now() WHERE id=$2::uuid AND user_id=$3::uuid", versionID, items[0].NodeID, userID)
 	if err != nil { return FinalizedUpload{}, fmt.Errorf("activate file version: %w", err) }
-	payload, _ := json.Marshal(map[string]any{"provider":"google_drive","provider_item_id":providerItemID,"version_id":versionID,"size_bytes":size})
+	payload, _ := json.Marshal(map[string]any{"provider":"google_drive","provider_item_id":providerItemID,"provider_revision_id":revisionID,"version_id":versionID,"size_bytes":size})
 	_, err = tx.Exec(ctx, "INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'file.version.created','node',$2::uuid,$3::jsonb)", userID, items[0].NodeID, string(payload))
 	if err != nil { return FinalizedUpload{}, fmt.Errorf("record upload event: %w", err) }
 	if err := tx.Commit(ctx); err != nil { return FinalizedUpload{}, fmt.Errorf("commit upload finalize: %w", err) }
@@ -66,7 +72,7 @@ func (s *Service) FinalizeGoogleUpload(ctx context.Context, userID string, input
 }
 
 func (s *Service) fetchGoogleFile(ctx context.Context, accessToken, itemID string) (googleFile, error) {
-	fields := url.QueryEscape("id,name,mimeType,parents,size,modifiedTime")
+	fields := url.QueryEscape("id,name,mimeType,parents,size,modifiedTime,headRevisionId")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, googleFilesURL+"/"+url.PathEscape(itemID)+"?fields="+fields+"&supportsAllDrives=true", nil)
 	if err != nil { return googleFile{}, err }
 	req.Header.Set("Authorization", "Bearer "+accessToken)
