@@ -8,11 +8,11 @@ import (
 )
 
 func DefaultSyncRoot() (string,error) {
-	home,err:=os.UserHomeDir()
+	dir,err:=StateDir()
 	if err!=nil { return "",err }
-	home=strings.TrimSpace(home)
-	if home=="" { return "",errors.New("user home directory is unavailable") }
-	return filepath.Join(home,"ClusterStor"),nil
+	dir=strings.TrimSpace(dir)
+	if dir=="" { return "",errors.New("ClusterStor state directory is unavailable") }
+	return filepath.Join(dir,"DriveRoot"),nil
 }
 
 func EnsureSyncRoot(path string) (string,error) {
