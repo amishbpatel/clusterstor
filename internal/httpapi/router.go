@@ -305,8 +305,6 @@ func handleManagedFiles(service *providers.Service) http.HandlerFunc {
 		user, _ := r.Context().Value(userContextKey{}).(auth.User)
 		page, err := service.ListManagedFiles(r.Context(), user.ID, parentNodeID, strings.TrimSpace(r.URL.Query().Get("cursor")), pageSize)
 		switch {
-		case errors.Is(err, providers.ErrInsufficientProviderSpace):
-			writeError(w, http.StatusConflict, "insufficient_storage", "not enough free space in Google Drive for this upload")
 		case errors.Is(err, providers.ErrInvalidProviderParent):
 			writeError(w, http.StatusBadRequest, "invalid_parent", "folder must be inside a ClusterStor managed provider root")
 		case errors.Is(err, providers.ErrProviderAccountNotFound):
@@ -450,6 +448,8 @@ func handleBeginGoogleUpload(service *providers.Service) http.HandlerFunc {
 			Name: body.Name, ContentType: body.ContentType, SizeBytes: body.SizeBytes, ParentNodeID: body.ParentNodeID,
 		})
 		switch {
+		case errors.Is(err, providers.ErrInsufficientProviderSpace):
+			writeError(w, http.StatusConflict, "insufficient_storage", "not enough free space in Google Drive for this upload")
 		case errors.Is(err, providers.ErrInvalidProviderParent):
 			writeError(w, http.StatusBadRequest, "invalid_parent", "parent folder must be inside the ClusterStor provider root")
 		case errors.Is(err, providers.ErrProviderAccountNotFound):
