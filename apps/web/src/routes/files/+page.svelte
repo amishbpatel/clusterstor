@@ -931,13 +931,15 @@
                     {#if trashMode}
                       <button class="btn primary" on:click={() => restoreItem(item)} disabled={working}>Restore</button>
                     {:else}
-                      {#if item.node_type === 'file'}
-                        <button class="btn" on:click={() => download(item)}>Download</button>
-                        <button class="btn ghost" on:click={() => openVersionHistory(item)} disabled={working}>Versions</button>
-                      {/if}
-                      <button class="btn ghost" on:click={() => renameItem(item)} disabled={working}>Rename</button>
-                      <button class="btn ghost" on:click={() => moveItem(item)} disabled={working}>Move</button>
-                      <button class="btn danger" on:click={() => deleteItem(item)} disabled={working}>Delete</button>
+                      <div class="file-row-actions">
+                        {#if item.node_type === 'file'}
+                          <button class="btn ghost row-action-btn" on:click={() => openVersionHistory(item)} disabled={working}>Versions</button>
+                          <button class="btn row-action-btn" on:click={() => download(item)}>Download</button>
+                        {/if}
+                        <button class="btn danger row-action-btn" on:click={() => deleteItem(item)} disabled={working}>Delete</button>
+                        <button class="btn ghost row-action-btn" on:click={() => renameItem(item)} disabled={working}>Rename</button>
+                        <button class="btn ghost row-action-btn" on:click={() => moveItem(item)} disabled={working}>Move</button>
+                      </div>
                     {/if}
                   </div>
                 </td>
