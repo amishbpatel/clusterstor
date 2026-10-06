@@ -41,6 +41,11 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 			SELECT pi.provider_account_id,pi.node_id,pi.provider_item_id,pi.provider_parent_item_id,pi.size_bytes
 			FROM provider_items pi
 			JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+			JOIN nodes root_node
+			  ON root_node.id=pi.node_id
+			 AND root_node.user_id=$1::uuid
+			 AND root_node.state='active'
+			 AND root_node.deleted_at IS NULL
 			WHERE pa.user_id=$1::uuid
 			  AND pa.status='connected'
 			  AND pa.disconnected_at IS NULL
@@ -52,6 +57,11 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 			JOIN managed_items parent
 			  ON parent.provider_account_id=child.provider_account_id
 			 AND parent.provider_item_id=child.provider_parent_item_id
+			JOIN nodes child_node
+			  ON child_node.id=child.node_id
+			 AND child_node.user_id=$1::uuid
+			 AND child_node.state='active'
+			 AND child_node.deleted_at IS NULL
 		)
 		SELECT
 			CASE
@@ -87,6 +97,11 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 			SELECT pi.provider_account_id,pi.node_id,pi.provider_item_id,pi.provider_parent_item_id,pi.size_bytes
 			FROM provider_items pi
 			JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+			JOIN nodes root_node
+			  ON root_node.id=pi.node_id
+			 AND root_node.user_id=$1::uuid
+			 AND root_node.state='active'
+			 AND root_node.deleted_at IS NULL
 			WHERE pa.user_id=$1::uuid
 			  AND pa.status='connected'
 			  AND pa.disconnected_at IS NULL
@@ -98,6 +113,11 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 			JOIN managed_items parent
 			  ON parent.provider_account_id=child.provider_account_id
 			 AND parent.provider_item_id=child.provider_parent_item_id
+			JOIN nodes child_node
+			  ON child_node.id=child.node_id
+			 AND child_node.user_id=$1::uuid
+			 AND child_node.state='active'
+			 AND child_node.deleted_at IS NULL
 		),
 		typed AS (
 			SELECT
@@ -144,6 +164,11 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 			SELECT pi.provider_account_id,pi.node_id,pi.provider_item_id,pi.provider_parent_item_id,pi.size_bytes
 			FROM provider_items pi
 			JOIN provider_accounts pa ON pa.id=pi.provider_account_id
+			JOIN nodes root_node
+			  ON root_node.id=pi.node_id
+			 AND root_node.user_id=$1::uuid
+			 AND root_node.state='active'
+			 AND root_node.deleted_at IS NULL
 			WHERE pa.user_id=$1::uuid
 			  AND pa.status='connected'
 			  AND pa.disconnected_at IS NULL
@@ -155,6 +180,11 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 			JOIN managed_items parent
 			  ON parent.provider_account_id=child.provider_account_id
 			 AND parent.provider_item_id=child.provider_parent_item_id
+			JOIN nodes child_node
+			  ON child_node.id=child.node_id
+			 AND child_node.user_id=$1::uuid
+			 AND child_node.state='active'
+			 AND child_node.deleted_at IS NULL
 		)
 		SELECT n.id::text,n.name,pa.provider,COALESCE(mi.size_bytes,0)::bigint
 		FROM managed_items mi
