@@ -53,6 +53,7 @@ type googleFile struct {
 	Parents      []string `json:"parents"`
 	Size         string   `json:"size"`
 	ModifiedTime string   `json:"modifiedTime"`
+	Trashed      bool     `json:"trashed"`
 }
 
 func (s *Service) SyncGoogleDrive(ctx context.Context, userID, pageToken string, pageSize int) (DrivePage, error) {
