@@ -32,6 +32,8 @@ jobs:
       - run: go mod tidy
       - run: make migrate-up
       - run: go test ./...
+      - name: Cross-compile Windows desktop agent
+        run: GOOS=windows GOARCH=amd64 go build -o /tmp/clusterstor-agent.exe ./cmd/agent
 
   web:
     runs-on: ubuntu-latest
