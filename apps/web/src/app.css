@@ -1062,3 +1062,23 @@ html { scroll-behavior:smooth; }
     gap:8px 12px;
   }
 }
+
+
+/* Compact My Files row actions */
+.file-row-actions {
+  display:flex;
+  align-items:center;
+  flex-wrap:nowrap;
+  gap:4px;
+  white-space:nowrap;
+}
+.file-row-actions .row-action-btn {
+  padding:4px 7px;
+  border-radius:6px;
+  font-size:.72rem;
+  line-height:1.15;
+}
+.file-list-pane .table td:last-child {
+  width:1%;
+  white-space:nowrap;
+}
