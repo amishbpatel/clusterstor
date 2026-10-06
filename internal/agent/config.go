@@ -15,6 +15,7 @@ type Config struct {
 	DeviceName string `json:"device_name"`
 	Platform string `json:"platform"`
 	AgentVersion string `json:"agent_version"`
+	SyncRoot string `json:"sync_root"`
 	PeerContributionEnabled bool `json:"peer_contribution_enabled"`
 	PeerContributionBytes int64 `json:"peer_contribution_bytes"`
 }
