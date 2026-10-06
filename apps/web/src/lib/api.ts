@@ -26,6 +26,7 @@ export type ProviderAccount = {
   quota_used_bytes?: number | null;
   quota_free_bytes?: number | null;
   last_synced_at?: string | null;
+  managed_root_ready?: boolean;
 };
 
 export type FileItem = {
