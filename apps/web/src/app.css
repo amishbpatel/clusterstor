@@ -1082,3 +1082,16 @@ html { scroll-behavior:smooth; }
   width:1%;
   white-space:nowrap;
 }
+
+
+.version-history-actions {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:6px;
+  white-space:nowrap;
+}
+.version-history-actions .btn {
+  padding:5px 8px;
+  font-size:.74rem;
+}
