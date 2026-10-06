@@ -47,6 +47,9 @@ func main() {
 
 	if strings.TrimSpace(*syncRootFlag)!="" {
 		cfg.SyncRoot=*syncRootFlag
+	} else if runtime.GOOS=="windows" {
+		cfg.SyncRoot,err=agent.UpgradeLegacySyncRoot(cfg.SyncRoot)
+		if err!=nil { log.Fatalf("upgrade legacy ClusterStor backing folder: %v",err) }
 	}
 	if strings.TrimSpace(*driveNameFlag)!="" {
 		cfg.DriveName=*driveNameFlag
