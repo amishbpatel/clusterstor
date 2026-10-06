@@ -29,6 +29,19 @@ export type ProviderAccount = {
   managed_root_ready?: boolean;
 };
 
+export type Device = {
+  id: string;
+  name: string;
+  platform: string;
+  agent_version?: string | null;
+  status: string;
+  peer_contribution_enabled: boolean;
+  peer_contribution_bytes: number;
+  last_seen_at?: string | null;
+  created_at: string;
+  revoked_at?: string | null;
+};
+
 export type FileItem = {
   node_id: string;
   provider: string;
