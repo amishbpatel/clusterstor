@@ -103,7 +103,7 @@ func (s *Service) DashboardFileStats(ctx context.Context, userID string, limit i
 			SELECT
 				CASE
 					WHEN n.name LIKE '%.%' AND right(n.name,1) <> '.'
-						THEN upper(regexp_replace(n.name, '^.*\\.', ''))
+						THEN upper(regexp_replace(n.name, '^.*\.', ''))
 					ELSE 'OTHER'
 				END AS file_type,
 				n.id::text AS node_id,
