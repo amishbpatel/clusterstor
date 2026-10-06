@@ -91,7 +91,11 @@
     error = '';
     try {
       await ensureRoot();
-      await api('/api/v1/providers/google_drive/changes', { method: 'POST' });
+      try {
+        await api('/api/v1/providers/google_drive/changes', { method: 'POST' });
+      } catch {
+        // Folder reads are authoritative; incremental provider sync must not block My Files.
+      }
       await loadFolder(null, true);
       if (currentFolder) await loadFolder(currentFolder, true);
     } catch (e) {
