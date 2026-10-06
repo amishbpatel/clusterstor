@@ -170,9 +170,9 @@
       <p>This section can become the ClusterStor blog/changelog as development progresses.</p>
     </div>
     <div class="news-grid">
-      <article class="news-card"><span>Latest build</span><h3>Google Drive vertical slice is connected end to end</h3><p>Connect, browse, create folders, upload, finalize, download, and receive live change signals.</p><a href="/signup">Try the local build →</a></article>
-      <article class="news-card"><span>Architecture</span><h3>Provider-root policy keeps files organized</h3><p>Every ClusterStor-created item lives beneath a dedicated ClusterStor folder at the provider.</p><a href="#features">Explore features →</a></article>
-      <article class="news-card"><span>Coming next</span><h3>OneDrive and stronger multi-device sync</h3><p>The provider abstraction is designed so the next integrations can reuse the same logical model.</p><a href="#about">Why we built it →</a></article>
+      <article class="news-card"><span>Latest build</span><h3>Google Drive now runs through the full ClusterStor experience</h3><p>My Files, version history and restore, Activity, provider management, and device management are now working through the same account experience.</p><a href="/signup">Explore ClusterStor →</a></article>
+      <article class="news-card"><span>Product direction</span><h3>One file system, multiple storage choices</h3><p>Existing cloud providers, ClusterStor Cloud, and future opt-in Peer Storage are being designed as equal storage paths behind one consistent interface.</p><a href="#features">Explore features →</a></article>
+      <article class="news-card"><span>Coming next</span><h3>The desktop agent brings ClusterStor into the native filesystem</h3><p>Windows is planned first, followed by multi-provider adapters and the broader desktop synchronization engine.</p><a href="#about">Why we built it →</a></article>
     </div>
   </section>
 
