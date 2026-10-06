@@ -53,6 +53,7 @@ type googleFile struct {
 	Parents      []string `json:"parents"`
 	Size         string   `json:"size"`
 	ModifiedTime string   `json:"modifiedTime"`
+	HeadRevisionID string `json:"headRevisionId"`
 	Trashed      bool     `json:"trashed"`
 }
 
@@ -202,7 +203,7 @@ func (s *Service) fetchGoogleFiles(ctx context.Context, accessToken, pageToken s
 	q.Set("spaces", "drive")
 	q.Set("pageSize", strconv.Itoa(pageSize))
 	q.Set("orderBy", "folder,name_natural")
-	q.Set("fields", "nextPageToken,files(id,name,mimeType,parents,size,modifiedTime)")
+	q.Set("fields", "nextPageToken,files(id,name,mimeType,parents,size,modifiedTime,headRevisionId)")
 	q.Set("supportsAllDrives", "true")
 	q.Set("includeItemsFromAllDrives", "true")
 	if pageToken != "" {
