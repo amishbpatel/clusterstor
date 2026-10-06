@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page, navigating } from '$app/stores';
   import { goto } from '$app/navigation';
   import { logout } from '$lib/api';
 
@@ -8,6 +8,10 @@
     goto('/login');
   }
 </script>
+
+{#if $navigating}
+  <div class="route-loading" role="status" aria-label="Loading page"><span class="loading-spinner"></span></div>
+{/if}
 
 <div class="shell">
   <aside class="sidebar">
