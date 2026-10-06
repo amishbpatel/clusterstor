@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import AppShell from '$lib/AppShell.svelte';
+  import LoadingState from '$lib/LoadingState.svelte';
   import { api, getToken, formatBytes, type User, type ProviderAccount } from '$lib/api';
 
   let user: User | null = null;
@@ -19,7 +20,19 @@
     created_at: string;
   };
   let recentUploads: RecentActivity[] = [];
-  let recentDownloads: RecentActivity[] = [];
+  type FileTypeStat = {
+    file_type: string;
+    file_count: number;
+    total_size_bytes: number;
+  };
+  type LargestFile = {
+    node_id: string;
+    name: string;
+    provider: string;
+    size_bytes: number;
+  };
+  let fileTypes: FileTypeStat[] = [];
+  let largestFiles: LargestFile[] = [];
 
   $: google = providers.find((p) => p.provider === 'google_drive');
   $: storageProviders = providers.filter((p) => (p.quota_total_bytes || 0) > 0);
@@ -59,12 +72,14 @@
       const results = await Promise.all([
         api<User>('/api/v1/me'),
         api<{ providers: ProviderAccount[] }>('/api/v1/providers'),
-        api<{ uploads: RecentActivity[]; downloads: RecentActivity[] }>('/api/v1/dashboard/recent')
+        api<{ uploads: RecentActivity[] }>('/api/v1/dashboard/recent'),
+        api<{ file_types: FileTypeStat[]; largest_files: LargestFile[] }>('/api/v1/dashboard/files')
       ]);
       user = results[0];
       providers = results[1].providers;
       recentUploads = results[2].uploads;
-      recentDownloads = results[2].downloads;
+      fileTypes = results[3].file_types;
+      largestFiles = results[3].largest_files;
     } catch (e) {
       if (!getToken()) {
         goto('/login');
@@ -110,7 +125,7 @@
   {#if error}<div class="error" style="margin-bottom:16px">{error}</div>{/if}
 
   {#if loading}
-    <section class="card">Loading your ClusterStor account…</section>
+    <section class="card"><LoadingState label="Loading your ClusterStor dashboard…" /></section>
   {:else}
     <section class="dashboard-summary">
       <div class="card stat compact-stat">
@@ -179,8 +194,63 @@
       </section>
     </section>
 
-    <section class="dashboard-activity-grid">
+    <section class="dashboard-widget-grid">
       <section class="card activity-card">
+        <div class="activity-card-head">
+          <div>
+            <div class="eyebrow">File mix</div>
+            <h2>Files by type</h2>
+          </div>
+        </div>
+        {#if fileTypes.length === 0}
+          <div class="activity-empty">No file statistics available yet.</div>
+        {:else}
+          <div class="activity-table-wrap">
+            <table class="activity-table">
+              <thead><tr><th>Type</th><th>Files</th><th>Total size</th></tr></thead>
+              <tbody>
+                {#each fileTypes as item}
+                  <tr>
+                    <td><span class="file-type-badge">{item.file_type}</span></td>
+                    <td>{item.file_count.toLocaleString()}</td>
+                    <td>{formatBytes(item.total_size_bytes)}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      </section>
+
+      <section class="card activity-card">
+        <div class="activity-card-head">
+          <div>
+            <div class="eyebrow">Storage detail</div>
+            <h2>Largest files</h2>
+          </div>
+          <a class="btn ghost" href="/files">View files</a>
+        </div>
+        {#if largestFiles.length === 0}
+          <div class="activity-empty">No files available yet.</div>
+        {:else}
+          <div class="activity-table-wrap">
+            <table class="activity-table">
+              <thead><tr><th>File</th><th>Size</th><th>Source</th></tr></thead>
+              <tbody>
+                {#each largestFiles as item}
+                  <tr>
+                    <td><strong>{item.name}</strong></td>
+                    <td>{formatBytes(item.size_bytes)}</td>
+                    <td>{providerLabel(item.provider)}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      </section>
+
+      <section class="card activity-card recent-upload-card">
         <div class="activity-card-head">
           <div>
             <div class="eyebrow">Recent activity</div>
@@ -201,35 +271,6 @@
                     <td>{providerLabel(item.provider)}</td>
                     <td>{formatBytes(item.size_bytes)}</td>
                     <td>{formatActivityTime(item.created_at)}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/if}
-      </section>
-
-      <section class="card activity-card">
-        <div class="activity-card-head">
-          <div>
-            <div class="eyebrow">Recent activity</div>
-            <h2>Recently downloaded</h2>
-          </div>
-        </div>
-        {#if recentDownloads.length === 0}
-          <div class="activity-empty">No recorded downloads yet. New web downloads will appear here.</div>
-        {:else}
-          <div class="activity-table-wrap">
-            <table class="activity-table">
-              <thead><tr><th>File</th><th>Source</th><th>Size</th><th>Downloaded</th><th>Downloaded to</th></tr></thead>
-              <tbody>
-                {#each recentDownloads as item}
-                  <tr>
-                    <td><strong>{item.name}</strong></td>
-                    <td>{providerLabel(item.provider)}</td>
-                    <td>{formatBytes(item.size_bytes)}</td>
-                    <td>{formatActivityTime(item.created_at)}</td>
-                    <td>{item.destination || "Web browser"}</td>
                   </tr>
                 {/each}
               </tbody>
