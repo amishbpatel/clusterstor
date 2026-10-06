@@ -641,6 +641,31 @@
     }
   }
 
+  async function restoreVersion(version: FileVersionEntry) {
+    const target = versionFile;
+    if (!target || version.is_current) return;
+    const confirmed = window.confirm(
+      `Restore Version ${version.version_number} of "${target.name}"? ClusterStor will create a new current version from it and keep the existing history.`
+    );
+    if (!confirmed) return;
+
+    working = true;
+    versionUploading = true;
+    error = '';
+    success = '';
+    try {
+      await api(`/api/v1/nodes/${target.node_id}/versions/${version.id}/restore`, { method: 'POST' });
+      success = `Version ${version.version_number} restored as a new current version.`;
+      await loadVersions(target);
+      await refreshVisibleData(false);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to restore historical version.';
+    } finally {
+      working = false;
+      versionUploading = false;
+    }
+  }
+
   async function downloadVersion(version: FileVersionEntry) {
     const target = versionFile;
     if (!target) return;
@@ -987,15 +1012,22 @@
                   <span>{formatBytes(version.size_bytes)}</span>
                   <span>{sourceLabel(version.provider)}</span>
                 </div>
-                <button class="btn ghost" on:click={() => downloadVersion(version)} disabled={!version.downloadable || versionUploading}>
-                  Download
-                </button>
+                <div class="version-history-actions">
+                  {#if !version.is_current}
+                    <button class="btn primary" on:click={() => restoreVersion(version)} disabled={!version.downloadable || versionUploading}>
+                      Restore
+                    </button>
+                  {/if}
+                  <button class="btn ghost" on:click={() => downloadVersion(version)} disabled={!version.downloadable || versionUploading}>
+                    Download
+                  </button>
+                </div>
               </article>
             {/each}
           </div>
         {/if}
 
-        <p class="version-history-note">Uploading a new version replaces the current file contents while preserving the prior Google Drive revision for download.</p>
+        <p class="version-history-note">Uploading a new version replaces the current file contents while preserving the prior Google Drive revision. Restoring an older version creates a new current version and keeps the full history intact.</p>
       </section>
     </div>
   {/if}
