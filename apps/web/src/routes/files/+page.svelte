@@ -3,18 +3,18 @@
   import { goto } from '$app/navigation';
   import AppShell from '$lib/AppShell.svelte';
   import LoadingState from '$lib/LoadingState.svelte';
-  import { api, API_BASE, getToken, formatBytes, openEventSocket, type DriveItem } from '$lib/api';
+  import { api, API_BASE, getToken, formatBytes, openEventSocket, type FileItem, type UploadCapacity } from '$lib/api';
 
-  let items: DriveItem[] = [];
+  let items: FileItem[] = [];
   let rootProviderID = '';
-  let currentFolder: DriveItem | null = null;
+  let currentFolder: FileItem | null = null;
   let error = '';
   let success = '';
   let loading = true;
   let working = false;
   let fileInput: HTMLInputElement;
   let selected = new Set<string>();
-  let trashItems: DriveItem[] = [];
+  let trashItems: FileItem[] = [];
   let trashMode = false;
   let uploadProgress = 0;
   let uploadLabel = '';
@@ -22,6 +22,7 @@
   let expandedFolders = new Set<string>();
   let internalDragNodeID = '';
   let dropTargetNodeID = '';
+  let loadedFolders = new Set<string>();
 
   $: currentProviderParent = currentFolder ? currentFolder.provider_item_id : rootProviderID;
   $: visibleItems = (trashMode ? trashItems : items.filter((item) => item.parent_item_id === currentProviderParent))
@@ -31,47 +32,111 @@
     });
   $: breadcrumb = buildBreadcrumb(currentFolder);
   $: allVisibleSelected = visibleItems.length > 0 && visibleItems.every((item) => selected.has(item.node_id));
-  $: treeRows = folderTreeRows(items, rootProviderID, expandedFolders);
+  $: treeRows = folderTreeRows(items, rootProviderID, expandedFolders, loadedFolders);
 
-  async function load() {
+  function folderCacheKey(folder: FileItem | null) {
+    return folder?.node_id || 'root';
+  }
+
+  async function ensureRoot() {
+    if (rootProviderID) return rootProviderID;
+    const root = await api<{ root_provider_item_id: string }>('/api/v1/providers/google_drive/root', { method: 'POST' });
+    rootProviderID = root.root_provider_item_id;
+    return rootProviderID;
+  }
+
+  function replaceFolderChildren(parentProviderID: string, children: FileItem[]) {
+    const childIDs = new Set(children.map((item) => item.node_id));
+    items = [
+      ...items.filter((item) => item.parent_item_id !== parentProviderID || childIDs.has(item.node_id)),
+      ...children.filter((child) => !items.some((item) => item.node_id === child.node_id))
+    ];
+
+    const byID = new Map(items.map((item) => [item.node_id, item]));
+    for (const child of children) byID.set(child.node_id, child);
+    items = Array.from(byID.values()).filter((item) =>
+      item.parent_item_id !== parentProviderID || childIDs.has(item.node_id)
+    );
+  }
+
+  async function loadFolder(folder: FileItem | null, force = false) {
+    await ensureRoot();
+    const key = folderCacheKey(folder);
+    if (!force && loadedFolders.has(key)) {
+      const parentProviderID = folder?.provider_item_id || rootProviderID;
+      return items.filter((item) => item.parent_item_id === parentProviderID);
+    }
+
+    const folderItems: FileItem[] = [];
+    let cursor = '';
+    do {
+      const params = new URLSearchParams({ page_size: '500' });
+      if (folder) params.set('parent_node_id', folder.node_id);
+      if (cursor) params.set('cursor', cursor);
+      const page = await api<{ items: FileItem[]; next_cursor?: string }>(`/api/v1/files?${params.toString()}`);
+      folderItems.push(...page.items);
+      cursor = page.next_cursor || '';
+    } while (cursor);
+
+    const parentProviderID = folder?.provider_item_id || rootProviderID;
+    replaceFolderChildren(parentProviderID, folderItems);
+    const next = new Set(loadedFolders);
+    next.add(key);
+    loadedFolders = next;
+    return folderItems;
+  }
+
+  async function refreshVisibleData(showSpinner = false) {
+    if (showSpinner) loading = true;
     error = '';
     try {
-      const root = await api<{ root_provider_item_id: string }>('/api/v1/providers/google_drive/root', { method: 'POST' });
-      rootProviderID = root.root_provider_item_id;
-      const allItems: DriveItem[] = [];
-      let pageToken = '';
-      do {
-        const params = new URLSearchParams({ page_size: '500' });
-        if (pageToken) params.set('cursor', pageToken);
-        const page = await api<{ items: DriveItem[]; next_page_token?: string }>(
-          `/api/v1/providers/google_drive/files?${params.toString()}`
-        );
-        allItems.push(...page.items);
-        pageToken = page.next_page_token || '';
-      } while (pageToken);
-      items = allItems;
-      if (expandedFolders.size === 0) {
-        expandedFolders = new Set(allItems.filter((item) => item.node_type === 'folder' && isInsideClusterStor(item)).map((item) => item.node_id));
-      }
+      await ensureRoot();
+      await loadFolder(null, true);
+      if (currentFolder) await loadFolder(currentFolder, true);
     } catch (e) {
       if (!getToken()) { goto('/login'); return; }
+      error = e instanceof Error ? e.message : 'Unable to load files.';
+    } finally {
+      if (showSpinner) loading = false;
+    }
+  }
+
+  async function load() {
+    loading = true;
+    await refreshVisibleData(false);
+    loading = false;
+  }
+
+  async function openFolder(item: FileItem) {
+    currentFolder = item;
+    selected = new Set();
+    loading = true;
+    try {
+      await loadFolder(item, true);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unable to load folder.';
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function goRoot() {
+    currentFolder = null;
+    selected = new Set();
+    loading = true;
+    try {
+      await loadFolder(null, true);
+    } catch (e) {
       error = e instanceof Error ? e.message : 'Unable to load files.';
     } finally {
       loading = false;
     }
   }
 
-  function openFolder(item: DriveItem) {
-    currentFolder = item;
-    selected = new Set();
-  }
-
-  function goRoot() { currentFolder = null; selected = new Set(); }
-
-  function buildBreadcrumb(folder: DriveItem | null) {
-    if (!folder) return [] as DriveItem[];
-    const path: DriveItem[] = [];
-    let cursor: DriveItem | undefined = folder;
+  function buildBreadcrumb(folder: FileItem | null) {
+    if (!folder) return [] as FileItem[];
+    const path: FileItem[] = [];
+    let cursor: FileItem | undefined = folder;
     const seen = new Set<string>();
     while (cursor && !seen.has(cursor.node_id)) {
       path.unshift(cursor);
@@ -82,7 +147,7 @@
     return path;
   }
 
-  function toggleSelected(item: DriveItem) {
+  function toggleSelected(item: FileItem) {
     const next = new Set(selected);
     if (next.has(item.node_id)) next.delete(item.node_id); else next.add(item.node_id);
     selected = next;
@@ -95,7 +160,7 @@
     selected = next;
   }
 
-  function collectFiles(item: DriveItem, prefix = ''): Array<{ item: DriveItem; path: string }> {
+  function collectFiles(item: FileItem, prefix = ''): Array<{ item: FileItem; path: string }> {
     if (item.node_type === 'file') return [{ item, path: prefix + item.name }];
     const folderPrefix = prefix + item.name + '/';
     return items
@@ -103,7 +168,7 @@
       .flatMap((child) => collectFiles(child, folderPrefix));
   }
 
-  function collectFolders(item: DriveItem, prefix = ''): string[] {
+  function collectFolders(item: FileItem, prefix = ''): string[] {
     if (item.node_type !== 'folder') return [];
     const folderPath = prefix + item.name + '/';
     const children = items.filter((child) => child.parent_item_id === item.provider_item_id && child.node_type === 'folder');
@@ -116,7 +181,7 @@
     working = true;
     error = ''; success = '';
     try {
-      const item = await api<DriveItem>('/api/v1/providers/google_drive/folders', {
+      const item = await api<FileItem>('/api/v1/providers/google_drive/folders', {
         method: 'POST',
         body: JSON.stringify({ name: name.trim(), parent_node_id: currentFolder?.node_id || null })
       });
@@ -247,16 +312,16 @@
     return provider || 'Unknown';
   }
 
-  function collectDescendants(folder: DriveItem): DriveItem[] {
+  function collectDescendants(folder: FileItem): FileItem[] {
     const children = items.filter((item) => item.parent_item_id === folder.provider_item_id);
     return children.flatMap((child) => child.node_type === 'folder' ? [child, ...collectDescendants(child)] : [child]);
   }
 
-  function folderPath(folder: DriveItem) {
+  function folderPath(folder: FileItem) {
     return ['ClusterStor', ...buildBreadcrumb(folder).map((item) => item.name)].join(' / ');
   }
 
-  async function renameItem(item: DriveItem) {
+  async function renameItem(item: FileItem) {
     const name = window.prompt(`Rename ${item.node_type}`, item.name);
     if (!name?.trim() || name.trim() === item.name) return;
     working = true; error = ''; success = '';
@@ -268,7 +333,7 @@
     finally { working = false; }
   }
 
-  function isInsideClusterStor(candidate: DriveItem) {
+  function isInsideClusterStor(candidate: FileItem) {
     let parent = candidate.parent_item_id;
     const seen = new Set<string>();
     while (parent && !seen.has(parent)) {
@@ -285,8 +350,8 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  function folderTreeRows(allItems: DriveItem[], managedRootID: string, expanded: Set<string>) {
-    const rows: Array<{ folder: DriveItem; depth: number; hasChildren: boolean }> = [];
+  function folderTreeRows(allItems: FileItem[], managedRootID: string, expanded: Set<string>) {
+    const rows: Array<{ folder: FileItem; depth: number; hasChildren: boolean }> = [];
     if (!managedRootID) return rows;
     const childrenOf = (parentProviderID: string) =>
       allItems
@@ -304,13 +369,13 @@
     return rows;
   }
 
-  function toggleTreeFolder(folder: DriveItem) {
+  function toggleTreeFolder(folder: FileItem) {
     const next = new Set(expandedFolders);
     if (next.has(folder.node_id)) next.delete(folder.node_id); else next.add(folder.node_id);
     expandedFolders = next;
   }
 
-  function startInternalDrag(event: DragEvent, item: DriveItem) {
+  function startInternalDrag(event: DragEvent, item: FileItem) {
     if (trashMode || working) return;
     internalDragNodeID = item.node_id;
     event.dataTransfer?.setData('application/x-clusterstor-node', item.node_id);
@@ -322,7 +387,7 @@
     dropTargetNodeID = '';
   }
 
-  function canDropOnFolder(item: DriveItem, folder: DriveItem | null) {
+  function canDropOnFolder(item: FileItem, folder: FileItem | null) {
     if (folder?.node_id === item.node_id) return false;
     if (folder && collectDescendants(item).some((child) => child.node_id === folder.node_id)) return false;
     const currentParentNode = item.parent_item_id === rootProviderID
@@ -331,7 +396,7 @@
     return (folder?.node_id || null) !== currentParentNode;
   }
 
-  function dragOverMoveTarget(event: DragEvent, folder: DriveItem | null) {
+  function dragOverMoveTarget(event: DragEvent, folder: FileItem | null) {
     if (!internalDragNodeID) return;
     const item = items.find((candidate) => candidate.node_id === internalDragNodeID);
     if (!item || !canDropOnFolder(item, folder)) return;
@@ -346,7 +411,7 @@
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
   }
 
-  async function dropMoveTarget(event: DragEvent, folder: DriveItem | null) {
+  async function dropMoveTarget(event: DragEvent, folder: FileItem | null) {
     if (!internalDragNodeID) return;
     event.preventDefault();
     event.stopPropagation();
@@ -367,7 +432,7 @@
       working = false;
     }
   }
-  async function moveItem(item: DriveItem) {
+  async function moveItem(item: FileItem) {
     const descendantIDs = new Set(collectDescendants(item).map((entry) => entry.node_id));
     const folders = items.filter((candidate) =>
       candidate.node_type === 'folder' &&
@@ -393,7 +458,7 @@
   async function showTrash() {
     working = true; error = ''; success = '';
     try {
-      const result = await api<{ items: DriveItem[] }>('/api/v1/trash');
+      const result = await api<{ items: FileItem[] }>('/api/v1/trash');
       trashItems = result.items;
       trashMode = true;
       currentFolder = null;
@@ -407,7 +472,7 @@
     selected = new Set();
   }
 
-  async function restoreItem(item: DriveItem) {
+  async function restoreItem(item: FileItem) {
     working = true; error = ''; success = '';
     try {
       await api(`/api/v1/nodes/${item.node_id}/restore`, { method: 'POST' });
@@ -416,7 +481,7 @@
     } catch (e) { error = e instanceof Error ? e.message : 'Unable to restore item.'; }
     finally { working = false; }
   }
-  async function fetchDownload(item: DriveItem, recordActivity = true) {
+  async function fetchDownload(item: FileItem, recordActivity = true) {
     const token = getToken();
     if (!token) { goto('/login'); throw new Error('You are not signed in.'); }
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
@@ -437,7 +502,7 @@
     URL.revokeObjectURL(url);
   }
 
-  async function download(item: DriveItem) {
+  async function download(item: FileItem) {
     error = '';
     try {
       await saveBlob(await fetchDownload(item), item.name);
@@ -488,7 +553,7 @@
     }
   }
 
-  async function deleteItem(item: DriveItem) {
+  async function deleteItem(item: FileItem) {
     const label = item.node_type === 'folder'
       ? `Delete folder "${item.name}" and everything inside it? It will be moved to Google Drive trash.`
       : `Delete "${item.name}"? It will be moved to Google Drive trash.`;
