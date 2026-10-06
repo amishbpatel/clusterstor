@@ -18,13 +18,14 @@ import (
 	"github.com/amishbpatel/clusterstor/internal/agent"
 )
 
-const agentVersion = "0.1.0-dev"
+const agentVersion = "0.2.0-dev"
 
 func main() {
 	defaultAPI:=strings.TrimSpace(os.Getenv("CLUSTERSTOR_API_BASE_URL"))
 	if defaultAPI=="" { defaultAPI="http://localhost:8080" }
 
 	apiBase:=flag.String("api",defaultAPI,"ClusterStor API base URL")
+	syncRootFlag:=flag.String("sync-root","","local ClusterStor sync folder")
 	once:=flag.Bool("once",false,"send one heartbeat and exit after registration")
 	flag.Parse()
 
@@ -41,6 +42,22 @@ func main() {
 		cfg,err=pairDevice(ctx,client,cfg)
 		if err!=nil { log.Fatal(err) }
 	}
+
+	if strings.TrimSpace(*syncRootFlag)!="" {
+		cfg.SyncRoot=*syncRootFlag
+	}
+	syncRoot,err:=agent.EnsureSyncRoot(cfg.SyncRoot)
+	if err!=nil { log.Fatalf("prepare ClusterStor folder: %v",err) }
+	if cfg.SyncRoot!=syncRoot || cfg.AgentVersion!=agentVersion {
+		cfg.SyncRoot=syncRoot
+		cfg.AgentVersion=agentVersion
+		if err:=agent.SaveConfig(cfg); err!=nil { log.Fatalf("store agent configuration: %v",err) }
+	}
+	journal,err:=agent.OpenJournal(cfg.DeviceID,syncRoot)
+	if err!=nil { log.Fatalf("open sync journal: %v",err) }
+	snapshot:=journal.Snapshot()
+	log.Printf("ClusterStor folder ready: %s",syncRoot)
+	log.Printf("Sync journal ready: generation=%d items=%d pending=%d",snapshot.Generation,len(snapshot.Items),len(snapshot.Pending))
 
 	secret,err:=agent.LoadDeviceSecret()
 	if err!=nil { log.Fatalf("load device credential: %v",err) }
@@ -107,6 +124,7 @@ func pairDevice(ctx context.Context,client *agent.Client,cfg agent.Config) (agen
 			DeviceName:status.Registration.Device.Name,
 			Platform:status.Registration.Device.Platform,
 			AgentVersion:agentVersion,
+			SyncRoot:cfg.SyncRoot,
 			PeerContributionEnabled:status.Registration.Device.PeerContributionEnabled,
 			PeerContributionBytes:status.Registration.Device.PeerContributionBytes,
 		}
