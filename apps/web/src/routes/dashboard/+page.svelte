@@ -37,8 +37,9 @@
   let largestFiles: LargestFile[] = [];
   let expandedFileType = '';
 
-  $: google = providers.find((p) => p.provider === 'google_drive');
-  $: storageProviders = providers.filter((p) => (p.quota_total_bytes || 0) > 0);
+  $: connectedProviders = providers.filter((p) => p.status === 'connected');
+  $: google = connectedProviders.find((p) => p.provider === 'google_drive');
+  $: storageProviders = connectedProviders.filter((p) => (p.quota_total_bytes || 0) > 0);
   $: aggregateTotal = storageProviders.reduce((sum, p) => sum + (p.quota_total_bytes || 0), 0);
   $: aggregateUsed = storageProviders.reduce((sum, p) => sum + (p.quota_used_bytes || 0), 0);
   $: aggregateFree = Math.max(aggregateTotal - aggregateUsed, 0);
@@ -143,7 +144,7 @@
     <section class="dashboard-summary">
       <div class="card stat compact-stat">
         <span class="muted">Connected providers</span>
-        <strong>{providers.length}</strong>
+        <strong>{connectedProviders.length}</strong>
       </div>
 
       <section class="card storage-overview">
