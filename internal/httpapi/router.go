@@ -70,6 +70,7 @@ func NewRouter(pool *pgxpool.Pool, providerService *providers.Service) http.Hand
 	mux.Handle("POST /api/v1/nodes/{id}/versions/uploads", requireUser(authService, http.HandlerFunc(handleBeginVersionUpload(providerService))))
 	mux.Handle("POST /api/v1/nodes/{id}/versions/uploads/recover", requireUser(authService, http.HandlerFunc(handleRecoverVersionUpload(providerService))))
 	mux.Handle("GET /api/v1/nodes/{id}/versions/{versionID}/download", requireUser(authService, http.HandlerFunc(handleVersionDownload(providerService))))
+	mux.Handle("POST /api/v1/nodes/{id}/versions/{versionID}/restore", requireUser(authService, http.HandlerFunc(handleRestoreVersion(providerService))))
 	mux.Handle("DELETE /api/v1/nodes/{id}", requireUser(authService, http.HandlerFunc(handleDeleteNode(providerService))))
 	mux.Handle("PATCH /api/v1/nodes/{id}/name", requireUser(authService, http.HandlerFunc(handleRenameNode(providerService))))
 	mux.Handle("POST /api/v1/nodes/{id}/move", requireUser(authService, http.HandlerFunc(handleMoveNode(providerService))))
@@ -709,6 +710,32 @@ func handleRecoverVersionUpload(service *providers.Service) http.HandlerFunc {
 			writeError(w,http.StatusBadGateway,"provider_error","unable to recover version upload")
 		default:
 			writeJSON(w,http.StatusOK,result)
+		}
+	}
+}
+
+
+func handleRestoreVersion(service *providers.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value(userContextKey{}).(auth.User)
+		result, err := service.RestoreGoogleVersion(r.Context(),user.ID,r.PathValue("id"),r.PathValue("versionID"))
+		switch {
+		case errors.Is(err, providers.ErrVersionHistoryNotFound):
+			writeError(w,http.StatusNotFound,"version_not_found","version was not found")
+		case errors.Is(err, providers.ErrVersionHistoryUnavailable):
+			writeError(w,http.StatusBadRequest,"version_restore_unavailable","this version cannot be restored")
+		case errors.Is(err, providers.ErrInsufficientProviderSpace):
+			writeError(w,http.StatusConflict,"insufficient_storage","not enough free space in Google Drive to preserve the restored version")
+		case errors.Is(err, providers.ErrProviderAccountNotFound):
+			writeError(w,http.StatusNotFound,"provider_not_connected","google drive is not connected")
+		case errors.Is(err, providers.ErrProviderNotConfigured):
+			writeError(w,http.StatusServiceUnavailable,"provider_not_configured","google drive is not configured")
+		case errors.Is(err, providers.ErrOAuthExchange):
+			writeError(w,http.StatusBadGateway,"oauth_refresh_failed","google drive credentials could not be refreshed")
+		case err != nil:
+			writeError(w,http.StatusBadGateway,"provider_error","unable to restore historical version")
+		default:
+			writeJSON(w,http.StatusCreated,result)
 		}
 	}
 }
