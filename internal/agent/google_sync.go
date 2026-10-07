@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -563,16 +564,46 @@ func replaceLocalFile(temp,target string) error {
 	if info,err:=os.Stat(target); err==nil {
 		if info.IsDir() { return fmt.Errorf("local path is a directory: %s",target) }
 		backup=filepath.Join(filepath.Dir(target),"~clusterstor-old-"+fmt.Sprintf("%d",time.Now().UnixNano())+".tmp")
-		if err:=os.Rename(target,backup); err!=nil { return err }
+		if err:=renameWithSharingRetry(target,backup); err!=nil { return err }
 	} else if !errors.Is(err,os.ErrNotExist) {
 		return err
 	}
-	if err:=os.Rename(temp,target); err!=nil {
-		if backup!="" { _=os.Rename(backup,target) }
+	if err:=renameWithSharingRetry(temp,target); err!=nil {
+		if backup!="" { _=renameWithSharingRetry(backup,target) }
 		return err
 	}
 	if backup!="" { _=os.Remove(backup) }
 	return nil
+}
+
+func renameWithSharingRetry(oldPath,newPath string) error {
+	var lastErr error
+	for attempt:=0;attempt<30;attempt++ {
+		if err:=os.Rename(oldPath,newPath); err==nil {
+			return nil
+		} else {
+			lastErr=err
+			if !isRetryableWindowsFileLock(err) {
+				return err
+			}
+		}
+		time.Sleep(100*time.Millisecond)
+	}
+	return lastErr
+}
+
+func isRetryableWindowsFileLock(err error) bool {
+	if runtime.GOOS!="windows" || err==nil { return false }
+	var errno syscall.Errno
+	if !errors.As(err,&errno) { return false }
+	switch errno {
+	case syscall.Errno(5),  // ERROR_ACCESS_DENIED
+		syscall.Errno(32), // ERROR_SHARING_VIOLATION
+		syscall.Errno(33): // ERROR_LOCK_VIOLATION
+		return true
+	default:
+		return false
+	}
 }
 
 func googleRemoteChangedFromOperationBase(op PendingOperation,item GoogleSyncItem) bool {
