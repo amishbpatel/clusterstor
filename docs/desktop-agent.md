@@ -23,9 +23,12 @@ The current Windows agent slice provides:
 - persistent local sync journal state stored outside the mapped drive;
 - revocation through the existing Devices screen;
 - Windows cross-compilation in CI;
-- an Inno Setup developer-preview installer definition.
+- an Inno Setup developer-preview installer definition;
+- a recursive filesystem watcher that journals create, edit, move, rename, and delete activity;
+- provider-neutral conflict rules with per-operation base-version metadata;
+- provider-neutral local availability rules for Automatic, Always keep, Online-only, and selective sync.
 
-The agent does not yet synchronize files. This is intentional: device identity, credentials, revocation, and lifecycle are established before filesystem mutation is introduced.
+The agent does not yet execute provider transfers. Local filesystem activity is durable, but Google Drive upload/download execution remains the next provider-sync phase.
 
 ## Pairing flow
 
@@ -87,7 +90,7 @@ Internal agent state remains outside the mapped drive so ClusterStor cannot acci
 %LOCALAPPDATA%\ClusterStor\sync-journal.json
 ```
 
-The journal currently records the device identity, backing root, schema version, logical item map, pending-operation queue, and generation metadata. The item map and operation queue remain empty until the filesystem watcher and sync engine are introduced.
+The journal records the device identity, backing root, schema version, logical item map, pending-operation queue, generation metadata, conflict base versions, and local availability state. The filesystem watcher now populates pending operations; provider execution is intentionally disabled until the sync worker phase.
 
 The production installer exposes the drive name and letter as visual setup fields. Later Settings UI will allow those preferences to be managed without command-line flags. A richer Windows Cloud Files integration can replace the simple mapped-drive presentation when Files On-Demand/placeholders are implemented without changing the provider-neutral sync model.
 
@@ -150,17 +153,25 @@ The signed-in web Settings screen now provides the account/settings destination 
 
 Billing remains a future implementation phase. It should cover the current plan, provider-adapter entitlement, ClusterStor Cloud capacity, Peer Storage plan, renewal cycle, payment method, invoices/receipts, upgrade/downgrade, and cancellation. The desktop agent must not store payment-card data or billing-provider credentials.
 
-## Next desktop milestones
+## Desktop milestone status
 
-1. tray/background lifecycle and Windows startup behavior;
-2. mapped-drive lifecycle and Settings controls;
-3. local metadata database and sync journal;
-4. filesystem watcher;
-5. provider-neutral sync operation interface;
-6. Google Drive upload/download/change application;
-7. conflict detection and version creation;
-8. resumable transfer queue;
-9. selective/offline sync behavior;
-10. production installer signing and automatic updates.
+Completed foundations:
+
+1. tray/background lifecycle;
+2. mapped-drive lifecycle;
+3. local sync journal;
+4. filesystem watcher and coalescing;
+5. provider-neutral conflict policy;
+6. provider-neutral local storage / Files On-Demand policy.
+
+Next implementation sequence:
+
+1. Google Drive desktop sync worker and provider-neutral operation execution;
+2. conflict-copy execution and version reconciliation;
+3. resumable transfer queue and offline retry;
+4. Windows Cloud Files placeholder/hydration layer;
+5. selective-sync and per-path availability controls in the production UI;
+6. production installer signing and automatic updates;
+7. OneDrive, Dropbox, and Box desktop adapters.
 
 Peer Storage networking is not part of the initial sync-engine milestone. Only explicit onboarding and local configuration are established now.
