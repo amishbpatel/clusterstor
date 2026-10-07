@@ -6,8 +6,11 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os/exec"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/gogpu/systray"
 )
@@ -16,6 +19,11 @@ const trayIconBase64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAA30lEQVR4
 
 func RunDesktopUI(ctx context.Context,cfg *Config,onExit func()) error {
 	if cfg==nil { return fmt.Errorf("desktop config is required") }
+
+	// Win32 windows and their GetMessage loop are thread-affine. Keep tray
+	// creation, Shell_NotifyIcon registration, and the message loop on one OS thread.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	tray:=systray.New()
 	menu:=systray.NewMenu()
@@ -65,6 +73,26 @@ func RunDesktopUI(ctx context.Context,cfg *Config,onExit func()) error {
 		_ = exec.Command("explorer.exe",cfg.DriveLetter+":\\").Start()
 	})
 	tray.Show()
+
+	x,y,w,h:=tray.Bounds()
+	if w>0 && h>0 {
+		log.Printf("ClusterStor tray registered with Windows at %d,%d (%dx%d)",x,y,w,h)
+	} else {
+		log.Printf("ClusterStor tray requested; Windows did not report icon bounds yet")
+		go func(){
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(750*time.Millisecond):
+				x,y,w,h:=tray.Bounds()
+				if w>0 && h>0 {
+					log.Printf("ClusterStor tray registered with Windows at %d,%d (%dx%d)",x,y,w,h)
+				} else {
+					log.Printf("WARNING: Windows still reports no ClusterStor tray icon bounds")
+				}
+			}
+		}()
+	}
 
 	go func(){
 		<-ctx.Done()
