@@ -108,8 +108,10 @@ func main() {
 	}
 	log.Printf("Sync journal ready: generation=%d items=%d pending=%d",snapshot.Generation,len(snapshot.Items),len(snapshot.Pending))
 
+	watcher,err:=agent.StartFilesystemWatcher(syncRoot,journal,nil)
+	if err!=nil { log.Fatalf("start filesystem watcher: %v",err) }
 	go func() {
-		if err:=agent.RunFilesystemWatcher(ctx,syncRoot,journal,nil); err!=nil && ctx.Err()==nil {
+		if err:=watcher.Run(ctx); err!=nil && ctx.Err()==nil {
 			log.Printf("filesystem watcher stopped: %v",err)
 			stop()
 		}
