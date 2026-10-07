@@ -44,7 +44,11 @@ func LoadConfig() (Config,error) {
 	dir,err:=StateDir()
 	if err!=nil { return Config{},err }
 	body,err:=os.ReadFile(filepath.Join(dir,"agent.json"))
-	if errors.Is(err,os.ErrNotExist) { return Config{},nil }
+	if errors.Is(err,os.ErrNotExist) {
+		cfg:=Config{}
+		ApplyLocalStorageDefaults(&cfg)
+		return cfg,nil
+	}
 	if err!=nil { return Config{},err }
 	var cfg Config
 	if err:=json.Unmarshal(body,&cfg); err!=nil { return Config{},err }
