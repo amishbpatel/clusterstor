@@ -6,4 +6,5 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gogpu/systray v0.3.0
 	github.com/jackc/pgx/v5 v5.11.0
+	golang.org/x/sys v0.47.0
 )
