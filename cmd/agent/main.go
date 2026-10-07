@@ -34,6 +34,13 @@ func main() {
 	once:=flag.Bool("once",false,"send one heartbeat and exit after registration")
 	flag.Parse()
 
+	releaseInstance,err:=agent.AcquireSingleInstance()
+	if errors.Is(err,agent.ErrAlreadyRunning) {
+		log.Fatal("ClusterStor desktop agent is already running")
+	}
+	if err!=nil { log.Fatalf("acquire desktop agent instance: %v",err) }
+	defer releaseInstance()
+
 	ctx,stop:=signal.NotifyContext(context.Background(),os.Interrupt,syscall.SIGTERM)
 	defer stop()
 
