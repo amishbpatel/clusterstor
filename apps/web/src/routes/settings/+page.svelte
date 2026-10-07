@@ -30,9 +30,10 @@
 
     <section class="card settings-card" id="sync">
       <div class="eyebrow">Sync</div>
-      <h2>Synchronization</h2>
-      <p>Pause/resume, selective sync, offline availability, bandwidth controls, conflicts, and Files On-Demand controls will live here.</p>
-      <span class="settings-state">Pause / Resume is already available from the Windows tray</span>
+      <h2>Synchronization & local storage</h2>
+      <p>Local availability is device-specific. <strong>Automatic</strong> is the default; files can later be marked <strong>Always keep on this device</strong> or <strong>Online-only</strong>. Selective sync is separate and can exclude a subtree from a device entirely.</p>
+      <p class="muted" style="margin:.6rem 0 0">ClusterStor will never reclaim local bytes that contain pending work, an unresolved conflict, or an unverified remote copy. Files On-Demand placeholder execution will be enabled after the provider sync worker is connected.</p>
+      <span class="settings-state">Policy implemented · Pause / Resume is available from the Windows tray</span>
     </section>
 
     <section class="card settings-card" id="providers">
