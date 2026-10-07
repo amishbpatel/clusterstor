@@ -126,9 +126,10 @@ func main() {
 	if err!=nil { log.Fatalf("load device credential: %v",err) }
 
 	if err:=heartbeat(ctx,client,cfg,secret); err!=nil {
-		log.Fatalf("initial heartbeat failed: %v",err)
+		log.Printf("ClusterStor API unavailable; starting offline: %v",err)
+	} else {
+		log.Printf("ClusterStor agent connected as %q (%s)",cfg.DeviceName,cfg.Platform)
 	}
-	log.Printf("ClusterStor agent connected as %q (%s)",cfg.DeviceName,cfg.Platform)
 	if *once { return }
 
 	go runHeartbeatLoop(ctx,client,cfg,secret)
