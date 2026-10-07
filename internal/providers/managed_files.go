@@ -49,7 +49,7 @@ func (s *Service) fetchGoogleChildren(ctx context.Context, accessToken, parentPr
 	q.Set("spaces", "drive")
 	q.Set("pageSize", strconv.Itoa(pageSize))
 	q.Set("orderBy", "folder,name_natural")
-	q.Set("fields", "nextPageToken,files(id,name,mimeType,parents,size,modifiedTime)")
+	q.Set("fields", "nextPageToken,files(id,name,mimeType,parents,size,modifiedTime,headRevisionId)")
 	q.Set("supportsAllDrives", "true")
 	q.Set("includeItemsFromAllDrives", "true")
 	if cursor != "" { q.Set("pageToken", cursor) }
