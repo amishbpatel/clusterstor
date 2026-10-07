@@ -214,8 +214,16 @@ func processGoogleOperation(ctx context.Context,client *Client,cfg Config,secret
 			updated,err:=client.MutateGoogleSyncNode(ctx,cfg.DeviceID,secret,nodeID,filepath.Base(op.LocalPath),parent)
 			if err!=nil { return err }
 			if exists {
-				updated.VersionID=item.VersionID
-				updated.ModifiedAt=item.ModifiedAt
+				if googleRemoteChangedFromOperationBase(op,item) {
+					// The provider kept newer remote bytes while we applied only
+					// the local path change. Keep the journal at the local/base
+					// content revision so reconciliation hydrates the newer bytes.
+					updated.VersionID=op.BaseVersionID
+					updated.ModifiedAt=op.BaseModifiedAt
+				} else {
+					updated.VersionID=item.VersionID
+					updated.ModifiedAt=item.ModifiedAt
+				}
 			}
 			log.Printf("synced local move to Google Drive: %s -> %s",op.OldLocalPath,op.LocalPath)
 			return journal.AcknowledgeOperation(op.ID,op.LocalPath,journalItemFromGoogle(updated,op.LocalPath,journal))
@@ -451,7 +459,7 @@ func reconcileGoogleRemote(ctx context.Context,client *Client,cfg Config,secret 
 
 		needDownload:=true
 		if info,err:=os.Stat(full); err==nil && !info.IsDir() && known &&
-			oldItem.VersionID==item.VersionID && oldItem.SizeBytes==item.SizeBytes {
+			googleJournalContentMatches(oldItem,item) {
 			needDownload=false
 		}
 		if needDownload {
@@ -537,6 +545,27 @@ func replaceLocalFile(temp,target string) error {
 	}
 	if backup!="" { _=os.Remove(backup) }
 	return nil
+}
+
+func googleRemoteChangedFromOperationBase(op PendingOperation,item GoogleSyncItem) bool {
+	if op.BaseVersionID!="" && item.VersionID!="" {
+		return op.BaseVersionID!=item.VersionID
+	}
+	if op.BaseModifiedAt!=nil && item.ModifiedAt!=nil {
+		return !op.BaseModifiedAt.Equal(*item.ModifiedAt)
+	}
+	return false
+}
+
+func googleJournalContentMatches(local JournalItem,remote GoogleSyncItem) bool {
+	if local.SizeBytes!=remote.SizeBytes { return false }
+	if remote.VersionID!="" || local.VersionID!="" {
+		return remote.VersionID!="" && local.VersionID==remote.VersionID
+	}
+	if local.ModifiedAt!=nil && remote.ModifiedAt!=nil {
+		return local.ModifiedAt.Equal(*remote.ModifiedAt)
+	}
+	return false
 }
 
 func journalItemFromGoogle(item GoogleSyncItem,path string,journal *Journal) JournalItem {
