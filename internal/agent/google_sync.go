@@ -362,7 +362,15 @@ func uploadGoogleLocalFile(ctx context.Context,client *Client,cfg Config,secret 
 
 	finalized,err:=client.FinalizeGoogleSyncUpload(ctx,cfg.DeviceID,secret,providerItemID)
 	if err!=nil { return err }
-	modified:=info.ModTime().UTC()
+	var modified *time.Time
+	// A local filesystem timestamp is not comparable to Google's provider
+	// modifiedTime. When a stable Google revision ID is available it is
+	// authoritative for conflict detection; otherwise leave the fallback time
+	// unset rather than manufacturing a false remote-change conflict.
+	if strings.TrimSpace(finalized.ProviderRevisionID)!="" {
+		localModified:=info.ModTime().UTC()
+		modified=&localModified
+	}
 	item:=JournalItem{
 		LocalPath:op.LocalPath,
 		NodeID:finalized.NodeID,
@@ -370,7 +378,7 @@ func uploadGoogleLocalFile(ctx context.Context,client *Client,cfg Config,secret 
 		ProviderItemID:finalized.ProviderItemID,
 		VersionID:finalized.ProviderRevisionID,
 		SizeBytes:finalized.SizeBytes,
-		ModifiedAt:&modified,
+		ModifiedAt:modified,
 		State:"synced",
 		Availability:AvailabilityAutomatic,
 		SyncScope:SyncScopeIncluded,
