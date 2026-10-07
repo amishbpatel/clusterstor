@@ -6,6 +6,39 @@ import (
 	"time"
 )
 
+
+const (
+	DefaultFreeSpaceReserveBytes int64 = 10 * 1024 * 1024 * 1024
+	DefaultFreeSpaceReservePercent = 10
+)
+
+func ApplyLocalStorageDefaults(cfg *Config) {
+	if cfg==nil { return }
+	cfg.DefaultAvailability=NormalizeAvailabilityMode(cfg.DefaultAvailability)
+	if cfg.FreeSpaceReserveBytes<=0 {
+		cfg.FreeSpaceReserveBytes=DefaultFreeSpaceReserveBytes
+	}
+	if cfg.FreeSpaceReservePercent<=0 || cfg.FreeSpaceReservePercent>90 {
+		cfg.FreeSpaceReservePercent=DefaultFreeSpaceReservePercent
+	}
+	for i:=range cfg.AvailabilityRules {
+		cfg.AvailabilityRules[i].Path=filepath.Clean(strings.TrimSpace(cfg.AvailabilityRules[i].Path))
+		cfg.AvailabilityRules[i].Mode=NormalizeAvailabilityMode(cfg.AvailabilityRules[i].Mode)
+		cfg.AvailabilityRules[i].Scope=NormalizeSyncScope(cfg.AvailabilityRules[i].Scope)
+	}
+}
+
+func IsDiskPressure(totalBytes,freeBytes,reserveBytes int64,reservePercent int) bool {
+	if totalBytes<=0 || freeBytes<0 { return false }
+	if reserveBytes<=0 { reserveBytes=DefaultFreeSpaceReserveBytes }
+	if reservePercent<=0 || reservePercent>90 { reservePercent=DefaultFreeSpaceReservePercent }
+
+	percentFloor:=totalBytes*int64(reservePercent)/100
+	floor:=reserveBytes
+	if percentFloor>floor { floor=percentFloor }
+	return freeBytes<floor
+}
+
 type AvailabilityMode string
 
 const (
