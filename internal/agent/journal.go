@@ -335,6 +335,19 @@ func (j *Journal) RecordRemoteItem(path string,item JournalItem) error {
 	if item.SyncScope=="" { item.SyncScope=SyncScopeIncluded }
 	if item.LocalContentState=="" { item.LocalContentState=LocalContentResident }
 
+	duplicate:=false
+	for key,current:=range j.state.Items {
+		if key==path { continue }
+		if (item.NodeID!="" && current.NodeID==item.NodeID) ||
+			(item.ProviderItemID!="" && current.ProviderItemID==item.ProviderItemID) {
+			duplicate=true
+			break
+		}
+	}
+	if current,ok:=j.state.Items[path]; ok && !duplicate && journalItemsEqual(current,item) {
+		return nil
+	}
+
 	for key,current:=range j.state.Items {
 		if key==path { continue }
 		if item.NodeID!="" && current.NodeID==item.NodeID {
@@ -349,6 +362,27 @@ func (j *Journal) RecordRemoteItem(path string,item JournalItem) error {
 	j.state.Generation++
 	j.state.UpdatedAt=time.Now().UTC()
 	return j.persistLocked()
+}
+
+func journalItemsEqual(a,b JournalItem) bool {
+	return a.LocalPath==b.LocalPath &&
+		a.NodeID==b.NodeID &&
+		a.Provider==b.Provider &&
+		a.ProviderItemID==b.ProviderItemID &&
+		a.VersionID==b.VersionID &&
+		a.SizeBytes==b.SizeBytes &&
+		timePointersEqual(a.ModifiedAt,b.ModifiedAt) &&
+		a.State==b.State &&
+		a.Availability==b.Availability &&
+		a.SyncScope==b.SyncScope &&
+		a.LocalContentState==b.LocalContentState &&
+		a.RemoteVerified==b.RemoteVerified &&
+		timePointersEqual(a.LastAccessedAt,b.LastAccessedAt)
+}
+
+func timePointersEqual(a,b *time.Time) bool {
+	if a==nil || b==nil { return a==nil && b==nil }
+	return a.Equal(*b)
 }
 
 func (j *Journal) RemoveRemoteItem(nodeID,providerItemID string) error {
