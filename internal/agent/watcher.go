@@ -108,6 +108,11 @@ func RunFilesystemWatcher(ctx context.Context,root string,journal *Journal,onQue
 func (w *filesystemWatcher) handleEvent(event fsnotify.Event) error {
 	rel,ok:=NormalizeRelativePath(w.root,event.Name)
 	if !ok { return nil }
+	if w.journal.IsLocalPathSuppressed(rel) {
+		w.cancelWritesUnder(rel)
+		w.cancelRemovalsUnder(rel)
+		return nil
+	}
 
 	if event.Op&fsnotify.Create!=0 {
 		info,err:=os.Stat(event.Name)
@@ -248,6 +253,10 @@ func (w *filesystemWatcher) scheduleWrite(rel string) {
 func (w *filesystemWatcher) flushWrites(now time.Time) {
 	for key,pending:=range w.writes {
 		if now.Before(pending.Due) { continue }
+		if w.journal.IsLocalPathSuppressed(pending.Path) {
+			delete(w.writes,key)
+			continue
+		}
 
 		absolute:=filepath.Join(w.root,pending.Path)
 		info,err:=os.Stat(absolute)
@@ -308,6 +317,11 @@ func (w *filesystemWatcher) flushWrites(now time.Time) {
 func (w *filesystemWatcher) flushRemovals(now time.Time) {
 	for key,removal:=range w.removals {
 		if now.Before(removal.Due) { continue }
+		if w.journal.IsLocalPathSuppressed(removal.Path) {
+			delete(w.removals,key)
+			w.cancelWritesUnder(removal.Path)
+			continue
+		}
 
 		op,changed,err:=w.journal.QueueLocalChange(LocalChange{
 			Kind:SyncOpDelete,
