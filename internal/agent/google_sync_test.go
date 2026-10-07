@@ -108,3 +108,24 @@ func TestResolveGoogleSnapshotKeepsDuplicateGoogleNames(t *testing.T) {
 		t.Fatalf("duplicate mapping changed extensions: %q %q",a,b)
 	}
 }
+
+
+func TestSuppressedPathDoesNotQueueWatcherWrite(t *testing.T) {
+	root:=t.TempDir()
+	j:=newTestJournal(t)
+	j.state.SyncRoot=root
+	path:=filepath.Join(root,"conflict.txt")
+	if err:=os.WriteFile(path,[]byte("internal sync"),0600); err!=nil { t.Fatal(err) }
+
+	w,err:=StartFilesystemWatcher(root,j,nil)
+	if err!=nil { t.Fatal(err) }
+	defer w.native.Close()
+
+	j.SuppressLocalPath("conflict.txt",time.Minute)
+	w.scheduleWrite("conflict.txt")
+	w.flushWrites(time.Now().Add(10*time.Second))
+
+	if got:=len(j.Snapshot().Pending); got!=0 {
+		t.Fatalf("expected suppressed internal sync write to be ignored, got %d pending operations",got)
+	}
+}
