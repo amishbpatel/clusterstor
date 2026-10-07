@@ -35,6 +35,7 @@ type PendingOperation struct {
 	NodeID string `json:"node_id,omitempty"`
 	BaseProviderItemID string `json:"base_provider_item_id,omitempty"`
 	BaseVersionID string `json:"base_version_id,omitempty"`
+	BaseLocalPath string `json:"base_local_path,omitempty"`
 	BaseModifiedAt *time.Time `json:"base_modified_at,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Attempts int `json:"attempts"`
@@ -231,6 +232,7 @@ func (j *Journal) newOperationLocked(change LocalChange) PendingOperation {
 		NodeID:base.NodeID,
 		BaseProviderItemID:base.ProviderItemID,
 		BaseVersionID:base.VersionID,
+		BaseLocalPath:basePath,
 		BaseModifiedAt:base.ModifiedAt,
 		CreatedAt:change.ObservedAt.UTC(),
 	}
