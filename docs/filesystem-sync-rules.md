@@ -1,6 +1,6 @@
 # ClusterStor filesystem sync rules
 
-This document defines the Windows-local behavior that the desktop watcher and sync journal must implement before provider operations are allowed.
+This document defines the Windows-local behavior implemented by the desktop watcher and sync journal before provider operations are allowed. The watcher is active in the developer agent; provider execution remains intentionally disabled.
 
 ## Core principle
 
@@ -178,3 +178,22 @@ The watcher records what happened locally but does not decide whether a remote/l
 Conflict detection happens immediately before a provider operation by comparing the local operation's known base version against current ClusterStor/provider metadata.
 
 That keeps local filesystem event handling deterministic and leaves conflict policy in one provider-neutral synchronization layer.
+
+
+## Implementation status
+
+The developer Windows agent now implements this local pipeline:
+
+- recursive watch registration for the private mapped-drive backing tree;
+- startup identity snapshot without treating pre-existing files as new uploads;
+- Windows file identity tracking for safe rename/move pairing;
+- 2-second write debounce plus a 1-second stability check;
+- recursive handling when folders are created or moved into ClusterStor;
+- durable journal persistence after every coalesced operation change;
+- rename grace before an unmatched rename/removal becomes a delete;
+- ignored Windows metadata, Office lock files, and transient browser downloads;
+- create/write/move/delete coalescing;
+- watcher activity continues while Sync is paused.
+
+The provider worker is still disabled, so pending operations remain in the local journal for inspection rather than being sent to Google Drive.
+
