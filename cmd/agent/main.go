@@ -138,6 +138,7 @@ func main() {
 	if *once { return }
 
 	go agent.RunGoogleSyncLoop(ctx,client,cfg,secret,journal)
+	go runLocalReconcileLoop(ctx,syncRoot,journal)
 	go runHeartbeatLoop(ctx,client,cfg,secret)
 	if runtime.GOOS=="windows" {
 		if err:=agent.RunDesktopUI(ctx,&cfg,stop); err!=nil && ctx.Err()==nil {
@@ -147,6 +148,26 @@ func main() {
 	}
 	<-ctx.Done()
 	log.Println("ClusterStor agent stopping")
+}
+
+func runLocalReconcileLoop(ctx context.Context,syncRoot string,journal *agent.Journal) {
+	ticker:=time.NewTicker(30*time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			queued,err:=agent.ReconcileLocalJournal(syncRoot,journal)
+			if err!=nil {
+				log.Printf("periodic local reconciliation warning: %v",err)
+				continue
+			}
+			if queued>0 {
+				log.Printf("Periodic reconciliation queued %d missed local change(s)",queued)
+			}
+		}
+	}
 }
 
 func runHeartbeatLoop(ctx context.Context,client *agent.Client,cfg agent.Config,secret string) {
