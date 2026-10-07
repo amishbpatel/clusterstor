@@ -18,7 +18,7 @@ import (
 	"github.com/amishbpatel/clusterstor/internal/agent"
 )
 
-const agentVersion = "0.5.0-dev"
+const agentVersion = "0.6.0-dev"
 
 func main() {
 	defaultAPI:=strings.TrimSpace(os.Getenv("CLUSTERSTOR_API_BASE_URL"))
@@ -132,6 +132,7 @@ func main() {
 	}
 	if *once { return }
 
+	go agent.RunGoogleSyncLoop(ctx,client,cfg,secret,journal)
 	go runHeartbeatLoop(ctx,client,cfg,secret)
 	if runtime.GOOS=="windows" {
 		if err:=agent.RunDesktopUI(ctx,&cfg,stop); err!=nil && ctx.Err()==nil {
