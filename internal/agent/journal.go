@@ -312,6 +312,22 @@ func (j *Journal) AcknowledgeOperation(operationID,path string,item JournalItem)
 	return j.persistLocked()
 }
 
+func (j *Journal) RecordOperationError(operationID string,operationErr error) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	operationID=strings.TrimSpace(operationID)
+	if operationID=="" || operationErr==nil { return nil }
+	for i:=range j.state.Pending {
+		if j.state.Pending[i].ID!=operationID { continue }
+		j.state.Pending[i].Attempts++
+		j.state.Pending[i].LastError=operationErr.Error()
+		j.state.Generation++
+		j.state.UpdatedAt=time.Now().UTC()
+		return j.persistLocked()
+	}
+	return nil
+}
+
 func (j *Journal) CompleteOperation(operationID string) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
