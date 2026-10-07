@@ -18,7 +18,7 @@ import (
 	"github.com/amishbpatel/clusterstor/internal/agent"
 )
 
-const agentVersion = "0.4.0-dev"
+const agentVersion = "0.5.0-dev"
 
 func main() {
 	defaultAPI:=strings.TrimSpace(os.Getenv("CLUSTERSTOR_API_BASE_URL"))
@@ -107,6 +107,13 @@ func main() {
 		log.Printf("ClusterStor sync root ready: %s",syncRoot)
 	}
 	log.Printf("Sync journal ready: generation=%d items=%d pending=%d",snapshot.Generation,len(snapshot.Items),len(snapshot.Pending))
+
+	go func() {
+		if err:=agent.RunFilesystemWatcher(ctx,syncRoot,journal,nil); err!=nil && ctx.Err()==nil {
+			log.Printf("filesystem watcher stopped: %v",err)
+			stop()
+		}
+	}()
 
 	secret,err:=agent.LoadDeviceSecret()
 	if err!=nil { log.Fatalf("load device credential: %v",err) }
