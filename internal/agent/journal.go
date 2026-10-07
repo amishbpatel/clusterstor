@@ -266,6 +266,52 @@ func (j *Journal) ItemByNodeID(nodeID string) (string,JournalItem,bool) {
 	return "",JournalItem{},false
 }
 
+func (j *Journal) AcknowledgeOperation(operationID,path string,item JournalItem) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	operationID=strings.TrimSpace(operationID)
+	path=filepath.Clean(strings.TrimSpace(path))
+	j.removePendingLocked(func(op PendingOperation) bool { return operationID!="" && op.ID==operationID })
+
+	if path!="" && path!="." {
+		item.LocalPath=path
+		if item.State=="" { item.State="synced" }
+		if item.Availability=="" { item.Availability=AvailabilityAutomatic }
+		if item.SyncScope=="" { item.SyncScope=SyncScopeIncluded }
+		if item.LocalContentState=="" { item.LocalContentState=LocalContentResident }
+
+		for key,current:=range j.state.Items {
+			if key==path { continue }
+			if item.NodeID!="" && current.NodeID==item.NodeID {
+				delete(j.state.Items,key)
+				continue
+			}
+			if item.ProviderItemID!="" && current.ProviderItemID==item.ProviderItemID {
+				delete(j.state.Items,key)
+			}
+		}
+		j.state.Items[path]=item
+
+		// A newer local event may have replaced the operation while this upload
+		// was in flight. Rebase that newer work onto the revision we just
+		// committed so sequential edits on one device are not false conflicts.
+		for i:=range j.state.Pending {
+			op:=&j.state.Pending[i]
+			if !journalPathEqual(op.LocalPath,path) { continue }
+			op.NodeID=item.NodeID
+			op.BaseProviderItemID=item.ProviderItemID
+			op.BaseVersionID=item.VersionID
+			op.BaseLocalPath=path
+			op.BaseModifiedAt=item.ModifiedAt
+		}
+	}
+
+	j.state.Generation++
+	j.state.UpdatedAt=time.Now().UTC()
+	return j.persistLocked()
+}
+
 func (j *Journal) CompleteOperation(operationID string) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
