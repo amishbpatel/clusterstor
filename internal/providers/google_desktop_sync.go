@@ -34,7 +34,7 @@ type GoogleDesktopSnapshot struct {
 func (s *Service) GoogleDesktopSnapshot(ctx context.Context,userID string) (GoogleDesktopSnapshot,error) {
 	accountID,_,err:=s.googleCredential(ctx,userID)
 	if err!=nil { return GoogleDesktopSnapshot{},err }
-	if _,err:=s.EnsureGoogleRoot(ctx,userID); err!=nil { return GoogleDesktopSnapshot{},err }
+	if _,err:=s.EnsureGoogleRoot(ctx,userID); err!=nil { return GoogleDesktopSnapshot{},fmt.Errorf("desktop sync ensure managed root: %w",err) }
 
 	var bootstrappedAt *time.Time
 	var cursor *string
@@ -49,11 +49,11 @@ func (s *Service) GoogleDesktopSnapshot(ctx context.Context,userID string) (Goog
 		// occur during the crawl are replayed from this cursor afterward.
 		if cursor==nil || strings.TrimSpace(*cursor)=="" {
 			if _,err:=s.SyncGoogleChanges(ctx,userID,1); err!=nil {
-				return GoogleDesktopSnapshot{},err
+				return GoogleDesktopSnapshot{},fmt.Errorf("desktop sync initialize change cursor: %w",err)
 			}
 		}
 		if _,err:=s.refreshGoogleManagedTree(ctx,userID,maxDesktopBootstrapItems); err!=nil {
-			return GoogleDesktopSnapshot{},err
+			return GoogleDesktopSnapshot{},fmt.Errorf("desktop sync crawl managed tree: %w",err)
 		}
 		if _,err:=s.pool.Exec(ctx,
 			"UPDATE provider_accounts SET desktop_tree_bootstrapped_at=now(),updated_at=now() WHERE id=$1::uuid",
@@ -67,12 +67,12 @@ func (s *Service) GoogleDesktopSnapshot(ctx context.Context,userID string) (Goog
 	// very large backlog remains; normal steady-state sync generally consumes one.
 	for batch:=0;batch<5;batch++ {
 		result,err:=s.SyncGoogleChanges(ctx,userID,20)
-		if err!=nil { return GoogleDesktopSnapshot{},err }
+		if err!=nil { return GoogleDesktopSnapshot{},fmt.Errorf("desktop sync drain change cursor: %w",err) }
 		if !result.HasMore { break }
 	}
 
 	items,err:=s.listGoogleDesktopItems(ctx,userID,accountID)
-	if err!=nil { return GoogleDesktopSnapshot{},err }
+	if err!=nil { return GoogleDesktopSnapshot{},fmt.Errorf("desktop sync list snapshot items: %w",err) }
 	return GoogleDesktopSnapshot{Provider:"google_drive",Bootstrapped:true,Items:items},nil
 }
 
