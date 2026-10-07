@@ -91,3 +91,20 @@ func TestUniqueConflictRelativePathPreservesExtension(t *testing.T) {
 	if got==filepath.Base(existing) { t.Fatal("expected a non-colliding path") }
 	if filepath.Ext(got)!=".docx" { t.Fatalf("extension changed: %q",got) }
 }
+
+
+func TestResolveGoogleSnapshotKeepsDuplicateGoogleNames(t *testing.T) {
+	snapshot:=GoogleSyncSnapshot{Items:[]GoogleSyncItem{
+		{NodeID:"file-a",ProviderItemID:"aaa111",Name:"same.txt",NodeType:"file",Downloadable:true},
+		{NodeID:"file-b",ProviderItemID:"bbb222",Name:"same.txt",NodeType:"file",Downloadable:true},
+	}}
+	resolved:=resolveGoogleSnapshot(snapshot)
+	a:=resolved.PathsByNode["file-a"]
+	b:=resolved.PathsByNode["file-b"]
+	if a=="" || b=="" || a==b {
+		t.Fatalf("expected distinct local paths for duplicate Drive names: %q %q",a,b)
+	}
+	if filepath.Ext(a)!=".txt" || filepath.Ext(b)!=".txt" {
+		t.Fatalf("duplicate mapping changed extensions: %q %q",a,b)
+	}
+}
