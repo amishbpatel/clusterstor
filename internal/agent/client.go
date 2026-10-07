@@ -16,6 +16,7 @@ import (
 type Client struct {
 	baseURL string
 	http *http.Client
+	transfer *http.Client
 }
 
 type PairingStart struct {
@@ -52,6 +53,7 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL:strings.TrimRight(strings.TrimSpace(baseURL),"/"),
 		http:&http.Client{Timeout:20*time.Second},
+		transfer:&http.Client{},
 	}
 }
 
@@ -205,7 +207,7 @@ func (c *Client) UploadGoogleSession(ctx context.Context,uploadURL,contentType s
 	req.Header.Set("Content-Length",fmt.Sprintf("%d",sizeBytes))
 	req.ContentLength=sizeBytes
 
-	resp,err:=c.http.Do(req)
+	resp,err:=c.transfer.Do(req)
 	if err!=nil { return "",err }
 	defer resp.Body.Close()
 	responseBody,err:=io.ReadAll(io.LimitReader(resp.Body,1<<20))
@@ -262,7 +264,7 @@ func (c *Client) DownloadGoogleSyncNode(ctx context.Context,deviceID,secret,node
 	if err!=nil { return nil,err }
 	req.Header.Set("Authorization",deviceAuthorization(deviceID,secret))
 	req.Header.Set("Accept","*/*")
-	resp,err:=c.http.Do(req)
+	resp,err:=c.transfer.Do(req)
 	if err!=nil { return nil,err }
 	if resp.StatusCode<200 || resp.StatusCode>=300 {
 		defer resp.Body.Close()
