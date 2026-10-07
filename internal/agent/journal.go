@@ -25,6 +25,11 @@ type JournalItem struct {
 	SizeBytes int64 `json:"size_bytes,omitempty"`
 	ModifiedAt *time.Time `json:"modified_at,omitempty"`
 	State string `json:"state"`
+	Availability AvailabilityMode `json:"availability,omitempty"`
+	SyncScope SyncScope `json:"sync_scope,omitempty"`
+	LocalContentState LocalContentState `json:"local_content_state,omitempty"`
+	RemoteVerified bool `json:"remote_verified,omitempty"`
+	LastAccessedAt *time.Time `json:"last_accessed_at,omitempty"`
 }
 
 type PendingOperation struct {
