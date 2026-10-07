@@ -92,3 +92,34 @@ func TestJournalKeepsMoveForKnownRemoteFile(t *testing.T) {
 		t.Fatalf("unexpected move operation: %#v",state.Pending[0])
 	}
 }
+
+
+func TestJournalCapturesBaseVersionForConflictCheck(t *testing.T) {
+	j:=newTestJournal(t)
+	modified:=time.Date(2026,10,7,12,0,0,0,time.UTC)
+	j.state.Items["Docs/report.txt"]=JournalItem{
+		LocalPath:"Docs/report.txt",
+		NodeID:"node-7",
+		ProviderItemID:"provider-7",
+		VersionID:"version-7",
+		ModifiedAt:&modified,
+		State:"synced",
+	}
+
+	op,changed,err:=j.QueueLocalChange(LocalChange{
+		Kind:SyncOpUpsertFile,
+		LocalPath:"Docs/report.txt",
+		ObservedAt:time.Now().UTC(),
+	})
+	if err!=nil { t.Fatal(err) }
+	if !changed { t.Fatal("expected local operation to be queued") }
+	if op.NodeID!="node-7" || op.BaseProviderItemID!="provider-7" || op.BaseVersionID!="version-7" {
+		t.Fatalf("missing base identity/version metadata: %#v",op)
+	}
+	if op.BaseLocalPath!=filepath.Clean("Docs/report.txt") {
+		t.Fatalf("unexpected base path %q",op.BaseLocalPath)
+	}
+	if op.BaseModifiedAt==nil || !op.BaseModifiedAt.Equal(modified) {
+		t.Fatalf("unexpected base modified time %#v",op.BaseModifiedAt)
+	}
+}
