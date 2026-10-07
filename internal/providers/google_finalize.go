@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -26,6 +27,7 @@ type FinalizedUpload struct {
 	ProviderRevisionID string `json:"provider_revision_id,omitempty"`
 	Name string `json:"name"`
 	SizeBytes int64 `json:"size_bytes"`
+	ModifiedAt *time.Time `json:"modified_at,omitempty"`
 }
 
 func (s *Service) FinalizeGoogleUpload(ctx context.Context, userID string, input FinalizeUploadInput) (FinalizedUpload, error) {
@@ -69,7 +71,7 @@ func (s *Service) FinalizeGoogleUpload(ctx context.Context, userID string, input
 	_, err = tx.Exec(ctx, "INSERT INTO account_events(user_id,event_type,resource_type,resource_id,payload) VALUES ($1::uuid,'file.version.created','node',$2::uuid,$3::jsonb)", userID, items[0].NodeID, string(payload))
 	if err != nil { return FinalizedUpload{}, fmt.Errorf("record upload event: %w", err) }
 	if err := tx.Commit(ctx); err != nil { return FinalizedUpload{}, fmt.Errorf("commit upload finalize: %w", err) }
-	return FinalizedUpload{NodeID: items[0].NodeID, VersionID: versionID, ProviderItemID: providerItemID, ProviderRevisionID: revisionID, Name: items[0].Name, SizeBytes: size}, nil
+	return FinalizedUpload{NodeID: items[0].NodeID, VersionID: versionID, ProviderItemID: providerItemID, ProviderRevisionID: revisionID, Name: items[0].Name, SizeBytes: size, ModifiedAt: items[0].ModifiedAt}, nil
 }
 
 func (s *Service) fetchGoogleFile(ctx context.Context, accessToken, itemID string) (googleFile, error) {
