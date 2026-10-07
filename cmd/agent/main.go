@@ -105,6 +105,8 @@ func main() {
 
 	journal,err:=agent.OpenJournal(cfg.DeviceID,syncRoot)
 	if err!=nil { log.Fatalf("open sync journal: %v",err) }
+	reconciled,err:=agent.ReconcileLocalJournal(syncRoot,journal)
+	if err!=nil { log.Fatalf("reconcile local sync state: %v",err) }
 	snapshot:=journal.Snapshot()
 	if runtime.GOOS=="windows" {
 		log.Printf("ClusterStor drive ready: %s (%s:)",cfg.DriveName,cfg.DriveLetter)
@@ -112,6 +114,9 @@ func main() {
 		log.Printf("ClusterStor sync root ready: %s",syncRoot)
 	}
 	log.Printf("Sync journal ready: generation=%d items=%d pending=%d",snapshot.Generation,len(snapshot.Items),len(snapshot.Pending))
+	if reconciled>0 {
+		log.Printf("Startup reconciliation queued %d local change(s)",reconciled)
+	}
 
 	watcher,err:=agent.StartFilesystemWatcher(syncRoot,journal,nil)
 	if err!=nil { log.Fatalf("start filesystem watcher: %v",err) }
