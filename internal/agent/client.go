@@ -201,7 +201,10 @@ func (c *Client) UploadGoogleSession(ctx context.Context,uploadURL,contentType s
 	uploadURL=strings.TrimSpace(uploadURL)
 	if uploadURL=="" { return "",errors.New("google upload session URL is empty") }
 	if contentType=="" { contentType="application/octet-stream" }
-	req,err:=http.NewRequestWithContext(ctx,http.MethodPut,uploadURL,body)
+	// The caller owns the upload reader. Wrap it so net/http closes only the
+	// request-body wrapper after transmission, not an underlying *os.File that
+	// the sync worker still needs to close and finalize afterward.
+	req,err:=http.NewRequestWithContext(ctx,http.MethodPut,uploadURL,io.NopCloser(body))
 	if err!=nil { return "",err }
 	req.Header.Set("Content-Type",contentType)
 	req.Header.Set("Content-Length",fmt.Sprintf("%d",sizeBytes))
