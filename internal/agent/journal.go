@@ -33,6 +33,9 @@ type PendingOperation struct {
 	LocalPath string `json:"local_path"`
 	OldLocalPath string `json:"old_local_path,omitempty"`
 	NodeID string `json:"node_id,omitempty"`
+	BaseProviderItemID string `json:"base_provider_item_id,omitempty"`
+	BaseVersionID string `json:"base_version_id,omitempty"`
+	BaseModifiedAt *time.Time `json:"base_modified_at,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Attempts int `json:"attempts"`
 	LastError string `json:"last_error,omitempty"`
@@ -214,13 +217,32 @@ func (j *Journal) QueueLocalChange(change LocalChange) (PendingOperation,bool,er
 }
 
 func (j *Journal) newOperationLocked(change LocalChange) PendingOperation {
+	basePath:=change.LocalPath
+	if change.Kind==SyncOpMove && change.OldLocalPath!="" {
+		basePath=change.OldLocalPath
+	}
+	base:=j.itemForPathLocked(basePath)
+
 	return PendingOperation{
 		ID:newOperationID(),
 		Kind:string(change.Kind),
 		LocalPath:change.LocalPath,
 		OldLocalPath:change.OldLocalPath,
+		NodeID:base.NodeID,
+		BaseProviderItemID:base.ProviderItemID,
+		BaseVersionID:base.VersionID,
+		BaseModifiedAt:base.ModifiedAt,
 		CreatedAt:change.ObservedAt.UTC(),
 	}
+}
+
+func (j *Journal) itemForPathLocked(path string) JournalItem {
+	for key,item:=range j.state.Items {
+		if journalPathEqual(key,path) || journalPathEqual(item.LocalPath,path) {
+			return item
+		}
+	}
+	return JournalItem{}
 }
 
 func (j *Journal) removePendingLocked(match func(PendingOperation) bool) bool {
