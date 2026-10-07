@@ -291,9 +291,9 @@ func (s *Service) upsertGoogleFiles(ctx context.Context, userID, accountID strin
 			_, err = tx.Exec(ctx, `
 				INSERT INTO provider_items(
 					provider_account_id,node_id,provider_item_id,provider_parent_item_id,
-					mime_type,size_bytes,modified_at
-				) VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7)`,
-				accountID, nodeID, file.ID, parentItemID, nullableString(file.MIMEType), size, modified)
+					mime_type,size_bytes,modified_at,provider_revision_id
+				) VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8)`,
+				accountID, nodeID, file.ID, parentItemID, nullableString(file.MIMEType), size, modified, nullableString(strings.TrimSpace(file.HeadRevisionID)))
 			if err != nil {
 				return nil, fmt.Errorf("map google drive item: %w", err)
 			}
@@ -310,9 +310,9 @@ func (s *Service) upsertGoogleFiles(ctx context.Context, userID, accountID strin
 			}
 			_, err = tx.Exec(ctx, `
 				UPDATE provider_items
-				SET provider_parent_item_id=$1,mime_type=$2,size_bytes=$3,modified_at=$4,updated_at=now()
-				WHERE provider_account_id=$5::uuid AND provider_item_id=$6`,
-				parentItemID, nullableString(file.MIMEType), size, modified, accountID, file.ID)
+				SET provider_parent_item_id=$1,mime_type=$2,size_bytes=$3,modified_at=$4,provider_revision_id=$5,updated_at=now()
+				WHERE provider_account_id=$6::uuid AND provider_item_id=$7`,
+				parentItemID, nullableString(file.MIMEType), size, modified, nullableString(strings.TrimSpace(file.HeadRevisionID)), accountID, file.ID)
 			if err != nil {
 				return nil, fmt.Errorf("update google drive item mapping: %w", err)
 			}
