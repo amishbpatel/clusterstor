@@ -56,19 +56,22 @@ func SyncGoogleOnce(ctx context.Context,client *Client,cfg Config,secret string,
 		log.Printf("google sync skipped unsupported local filename: %q",item.Name)
 	}
 
-	if err:=processGooglePending(ctx,client,cfg,secret,journal,resolved); err!=nil {
-		return err
-	}
+	pendingErr:=processGooglePending(ctx,client,cfg,secret,journal,resolved)
 
 	// Local operations may have changed remote paths/versions. Refresh before
-	// applying the remote state back to this device.
+	// applying the remote state back to this device. Even if one local operation
+	// failed, independent remote changes should continue to reconcile.
 	snapshot,err=client.GoogleSyncSnapshot(ctx,cfg.DeviceID,secret)
-	if err!=nil { return err }
-	resolved=resolveGoogleSnapshot(snapshot)
-	if err:=reconcileGoogleRemote(ctx,client,cfg,secret,journal,resolved); err!=nil {
+	if err!=nil {
+		if pendingErr!=nil { return fmt.Errorf("%v; refresh remote snapshot: %w",pendingErr,err) }
 		return err
 	}
-	return nil
+	resolved=resolveGoogleSnapshot(snapshot)
+	if err:=reconcileGoogleRemote(ctx,client,cfg,secret,journal,resolved); err!=nil {
+		if pendingErr!=nil { return fmt.Errorf("%v; reconcile remote: %w",pendingErr,err) }
+		return err
+	}
+	return pendingErr
 }
 
 func resolveGoogleSnapshot(snapshot GoogleSyncSnapshot) resolvedGoogleSnapshot {
@@ -139,6 +142,7 @@ func processGooglePending(ctx context.Context,client *Client,cfg Config,secret s
 		return di<dj
 	})
 
+	var firstErr error
 	for _,op:=range ops {
 		select {
 		case <-ctx.Done():
@@ -146,10 +150,13 @@ func processGooglePending(ctx context.Context,client *Client,cfg Config,secret s
 		default:
 		}
 		if err:=processGoogleOperation(ctx,client,cfg,secret,journal,remote,op); err!=nil {
-			return fmt.Errorf("%s %s: %w",op.Kind,op.LocalPath,err)
+			wrapped:=fmt.Errorf("%s %s: %w",op.Kind,op.LocalPath,err)
+			_ = journal.RecordOperationError(op.ID,wrapped)
+			log.Printf("google sync operation pending after error: %v",wrapped)
+			if firstErr==nil { firstErr=wrapped }
 		}
 	}
-	return nil
+	return firstErr
 }
 
 func syncOperationRank(op PendingOperation) int {
