@@ -217,6 +217,15 @@ func processGoogleOperation(ctx context.Context,client *Client,cfg Config,secret
 		return journal.AcknowledgeOperation(op.ID,op.LocalPath,journalItemFromGoogle(created,op.LocalPath,journal))
 
 	case SyncOpUpsertFile:
+		// A file can disappear after the watcher queued an upsert (for example,
+		// because a later rename/delete or conflict reconciliation consumed it).
+		// Treat that operation as stale instead of retrying a missing path forever.
+		if _,err:=os.Stat(filepath.Join(cfg.SyncRoot,op.LocalPath)); errors.Is(err,os.ErrNotExist) {
+			log.Printf("dropped stale local file upsert because path no longer exists: %s",op.LocalPath)
+			return journal.CompleteOperation(op.ID)
+		} else if err!=nil {
+			return err
+		}
 		switch decision.Action {
 		case ConflictPreserveBoth,ConflictRecoverLocalCopy:
 			return preserveGoogleConflictFile(ctx,client,cfg,secret,journal,remote,op,decision)
