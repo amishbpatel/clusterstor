@@ -144,6 +144,7 @@ type GoogleFinalizedUpload struct {
 	NodeID string `json:"node_id"`
 	VersionID string `json:"version_id"`
 	ProviderItemID string `json:"provider_item_id"`
+	ProviderRevisionID string `json:"provider_revision_id,omitempty"`
 	Name string `json:"name"`
 	SizeBytes int64 `json:"size_bytes"`
 }
