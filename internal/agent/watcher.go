@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -372,5 +373,6 @@ func (w *filesystemWatcher) removeSnapshot(parent string) {
 
 func pathKey(path string) string {
 	path=filepath.Clean(path)
-	return strings.ToLower(path)
+	if runtime.GOOS=="windows" { return strings.ToLower(path) }
+	return path
 }
