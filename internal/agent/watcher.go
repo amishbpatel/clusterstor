@@ -47,14 +47,13 @@ type filesystemWatcher struct {
 	onQueued   func(PendingOperation)
 }
 
-func RunFilesystemWatcher(ctx context.Context,root string,journal *Journal,onQueued func(PendingOperation)) error {
-	if journal==nil { return errors.New("sync journal is required") }
+func StartFilesystemWatcher(root string,journal *Journal,onQueued func(PendingOperation)) (*filesystemWatcher,error) {
+	if journal==nil { return nil,errors.New("sync journal is required") }
 	root=filepath.Clean(strings.TrimSpace(root))
-	if root=="" { return errors.New("watch root is required") }
+	if root=="" { return nil,errors.New("watch root is required") }
 
 	native,err:=fsnotify.NewWatcher()
-	if err!=nil { return err }
-	defer native.Close()
+	if err!=nil { return nil,err }
 
 	w:=&filesystemWatcher{
 		root:root,
@@ -65,20 +64,30 @@ func RunFilesystemWatcher(ctx context.Context,root string,journal *Journal,onQue
 		writes:map[string]pendingWrite{},
 		onQueued:onQueued,
 	}
-	if err:=w.scanTree(root,false); err!=nil { return fmt.Errorf("initial filesystem scan: %w",err) }
+	log.Printf("Filesystem watcher initializing: %s",root)
+	if err:=w.scanTree(root,false); err!=nil {
+		_ = native.Close()
+		return nil,fmt.Errorf("initial filesystem scan: %w",err)
+	}
+	log.Printf("Filesystem watcher active: %s (%d indexed paths)",root,len(w.entries))
+	return w,nil
+}
+
+func (w *filesystemWatcher) Run(ctx context.Context) error {
+	if w==nil || w.native==nil { return errors.New("filesystem watcher is not initialized") }
+	defer w.native.Close()
 
 	ticker:=time.NewTicker(250*time.Millisecond)
 	defer ticker.Stop()
-	log.Printf("Filesystem watcher active: %s",root)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case err,ok:=<-native.Errors:
+		case err,ok:=<-w.native.Errors:
 			if !ok { return nil }
 			log.Printf("filesystem watcher warning: %v",err)
-		case event,ok:=<-native.Events:
+		case event,ok:=<-w.native.Events:
 			if !ok { return nil }
 			if err:=w.handleEvent(event); err!=nil {
 				log.Printf("filesystem event warning for %s: %v",event.Name,err)
@@ -88,6 +97,12 @@ func RunFilesystemWatcher(ctx context.Context,root string,journal *Journal,onQue
 			w.flushWrites(now)
 		}
 	}
+}
+
+func RunFilesystemWatcher(ctx context.Context,root string,journal *Journal,onQueued func(PendingOperation)) error {
+	w,err:=StartFilesystemWatcher(root,journal,onQueued)
+	if err!=nil { return err }
+	return w.Run(ctx)
 }
 
 func (w *filesystemWatcher) handleEvent(event fsnotify.Event) error {
