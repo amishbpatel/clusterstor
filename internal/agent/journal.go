@@ -61,6 +61,7 @@ type Journal struct {
 	mu sync.Mutex
 	path string
 	state JournalState
+	suppressed map[string]time.Time
 }
 
 func OpenJournal(deviceID,syncRoot string) (*Journal,error) {
@@ -68,7 +69,7 @@ func OpenJournal(deviceID,syncRoot string) (*Journal,error) {
 	if err!=nil { return nil,err }
 	if err:=os.MkdirAll(dir,0700); err!=nil { return nil,err }
 	path:=filepath.Join(dir,"sync-journal.json")
-	j:=&Journal{path:path}
+	j:=&Journal{path:path,suppressed:map[string]time.Time{}}
 	body,err:=os.ReadFile(path)
 	switch {
 	case errors.Is(err,os.ErrNotExist):
@@ -119,6 +120,9 @@ func (j *Journal) QueueLocalChange(change LocalChange) (PendingOperation,bool,er
 
 	change.LocalPath=filepath.Clean(strings.TrimSpace(change.LocalPath))
 	change.OldLocalPath=filepath.Clean(strings.TrimSpace(change.OldLocalPath))
+	if j.isSuppressedLocked(change.LocalPath) || (change.OldLocalPath!="." && j.isSuppressedLocked(change.OldLocalPath)) {
+		return PendingOperation{},false,nil
+	}
 	if change.LocalPath=="" || change.LocalPath=="." {
 		return PendingOperation{},false,nil
 	}
@@ -220,6 +224,125 @@ func (j *Journal) QueueLocalChange(change LocalChange) (PendingOperation,bool,er
 	j.state.UpdatedAt=time.Now().UTC()
 	if err:=j.persistLocked(); err!=nil { return PendingOperation{},false,err }
 	return queued,true,nil
+}
+
+
+func (j *Journal) PendingOperations() []PendingOperation {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return append([]PendingOperation(nil),j.state.Pending...)
+}
+
+func (j *Journal) HasPendingPath(path string) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for _,op:=range j.state.Pending {
+		if journalPathEqual(op.LocalPath,path) || journalPathWithin(op.LocalPath,path) ||
+			(op.OldLocalPath!="" && (journalPathEqual(op.OldLocalPath,path) || journalPathWithin(op.OldLocalPath,path))) {
+			return true
+		}
+	}
+	return false
+}
+
+func (j *Journal) ItemByPath(path string) (JournalItem,bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	item:=j.itemForPathLocked(path)
+	if strings.TrimSpace(item.LocalPath)=="" && strings.TrimSpace(item.NodeID)=="" && strings.TrimSpace(item.ProviderItemID)=="" {
+		return JournalItem{},false
+	}
+	return item,true
+}
+
+func (j *Journal) ItemByNodeID(nodeID string) (string,JournalItem,bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	nodeID=strings.TrimSpace(nodeID)
+	if nodeID=="" { return "",JournalItem{},false }
+	for key,item:=range j.state.Items {
+		if item.NodeID==nodeID { return key,item,true }
+	}
+	return "",JournalItem{},false
+}
+
+func (j *Journal) CompleteOperation(operationID string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	operationID=strings.TrimSpace(operationID)
+	if operationID=="" { return nil }
+	removed:=j.removePendingLocked(func(op PendingOperation) bool { return op.ID==operationID })
+	if !removed { return nil }
+	j.state.Generation++
+	j.state.UpdatedAt=time.Now().UTC()
+	return j.persistLocked()
+}
+
+func (j *Journal) RecordRemoteItem(path string,item JournalItem) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	path=filepath.Clean(strings.TrimSpace(path))
+	if path=="" || path=="." { return nil }
+	item.LocalPath=path
+	if item.State=="" { item.State="synced" }
+	if item.Availability=="" { item.Availability=AvailabilityAutomatic }
+	if item.SyncScope=="" { item.SyncScope=SyncScopeIncluded }
+	if item.LocalContentState=="" { item.LocalContentState=LocalContentResident }
+
+	for key,current:=range j.state.Items {
+		if key==path { continue }
+		if item.NodeID!="" && current.NodeID==item.NodeID {
+			delete(j.state.Items,key)
+			continue
+		}
+		if item.ProviderItemID!="" && current.ProviderItemID==item.ProviderItemID {
+			delete(j.state.Items,key)
+		}
+	}
+	j.state.Items[path]=item
+	j.state.Generation++
+	j.state.UpdatedAt=time.Now().UTC()
+	return j.persistLocked()
+}
+
+func (j *Journal) RemoveRemoteItem(nodeID,providerItemID string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	changed:=false
+	for key,item:=range j.state.Items {
+		if (nodeID!="" && item.NodeID==nodeID) || (providerItemID!="" && item.ProviderItemID==providerItemID) {
+			delete(j.state.Items,key)
+			changed=true
+		}
+	}
+	if !changed { return nil }
+	j.state.Generation++
+	j.state.UpdatedAt=time.Now().UTC()
+	return j.persistLocked()
+}
+
+func (j *Journal) SuppressLocalPath(path string,duration time.Duration) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	path=filepath.Clean(strings.TrimSpace(path))
+	if path=="" || path=="." { return }
+	if duration<=0 { duration=10*time.Second }
+	if j.suppressed==nil { j.suppressed=map[string]time.Time{} }
+	j.suppressed[path]=time.Now().Add(duration)
+}
+
+func (j *Journal) isSuppressedLocked(path string) bool {
+	path=filepath.Clean(strings.TrimSpace(path))
+	if path=="" || path=="." || len(j.suppressed)==0 { return false }
+	now:=time.Now()
+	for key,until:=range j.suppressed {
+		if now.After(until) {
+			delete(j.suppressed,key)
+			continue
+		}
+		if journalPathEqual(path,key) || journalPathWithin(path,key) { return true }
+	}
+	return false
 }
 
 func (j *Journal) newOperationLocked(change LocalChange) PendingOperation {
