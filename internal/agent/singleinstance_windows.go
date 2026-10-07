@@ -3,12 +3,9 @@
 package agent
 
 import (
-	"errors"
 	"syscall"
 	"unsafe"
 )
-
-var ErrAlreadyRunning = errors.New("ClusterStor desktop agent is already running")
 
 var (
 	kernel32Instance = syscall.NewLazyDLL("kernel32.dll")
