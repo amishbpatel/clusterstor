@@ -34,7 +34,7 @@ func ReconcileLocalJournal(root string,journal *Journal) (int,error) {
 		}
 		if d.IsDir() {
 			seen[pathKey(rel)]=true
-			if _,exists:=state.Items[rel]; !exists {
+			if _,exists:=findJournalItemByPath(state,rel); !exists {
 				_,changed,err:=journal.QueueLocalChange(LocalChange{
 					Kind:SyncOpCreateFolder,
 					LocalPath:rel,
