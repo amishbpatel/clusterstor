@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"context"
 )
 
 func TestResolveGoogleSnapshotBuildsNestedPaths(t *testing.T) {
@@ -127,5 +128,25 @@ func TestSuppressedPathDoesNotQueueWatcherWrite(t *testing.T) {
 
 	if got:=len(j.Snapshot().Pending); got!=0 {
 		t.Fatalf("expected suppressed internal sync write to be ignored, got %d pending operations",got)
+	}
+}
+
+
+func TestProcessGoogleOperationDropsMissingLocalUpsert(t *testing.T) {
+	root:=t.TempDir()
+	j:=newTestJournal(t)
+	j.state.SyncRoot=root
+	op,_,err:=j.QueueLocalChange(LocalChange{
+		Kind:SyncOpUpsertFile,
+		LocalPath:"missing.txt",
+		ObservedAt:time.Now().UTC(),
+	})
+	if err!=nil { t.Fatal(err) }
+
+	cfg:=Config{SyncRoot:root,DeviceName:"test-device"}
+	err=processGoogleOperation(context.Background(),nil,cfg,"",j,resolvedGoogleSnapshot{},op)
+	if err!=nil { t.Fatal(err) }
+	if got:=len(j.PendingOperations()); got!=0 {
+		t.Fatalf("expected missing local upsert to be completed, got %d pending",got)
 	}
 }
