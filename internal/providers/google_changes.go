@@ -154,7 +154,7 @@ func (s *Service) fetchGoogleChanges(ctx context.Context, accessToken, pageToken
 	q.Set("spaces","drive")
 	q.Set("includeRemoved","true")
 	q.Set("restrictToMyDrive","true")
-	q.Set("fields","nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,parents,size,modifiedTime,trashed))")
+	q.Set("fields","nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,parents,size,modifiedTime,headRevisionId,trashed))")
 
 	req, err := http.NewRequestWithContext(ctx,http.MethodGet,googleChangesURL+"?"+q.Encode(),nil)
 	if err != nil { return googleChangesResponse{},err }
@@ -226,9 +226,12 @@ func (s *Service) updateGoogleItemOutsideRoot(ctx context.Context, userID, accou
 	if len(file.Parents)>0 && strings.TrimSpace(file.Parents[0])!="" { parent=file.Parents[0] }
 	if _, err := s.pool.Exec(ctx,`
 		UPDATE provider_items
-		SET provider_parent_item_id=$1,modified_at=CASE WHEN $2='' THEN modified_at ELSE $2::timestamptz END,updated_at=now()
-		WHERE provider_account_id=$3::uuid AND provider_item_id=$4`,
-		parent,file.ModifiedTime,accountID,file.ID); err != nil {
+		SET provider_parent_item_id=$1,
+		    modified_at=CASE WHEN $2='' THEN modified_at ELSE $2::timestamptz END,
+		    provider_revision_id=CASE WHEN $3='' THEN provider_revision_id ELSE $3 END,
+		    updated_at=now()
+		WHERE provider_account_id=$4::uuid AND provider_item_id=$5`,
+		parent,file.ModifiedTime,strings.TrimSpace(file.HeadRevisionID),accountID,file.ID); err != nil {
 		return fmt.Errorf("update moved google mapping: %w",err)
 	}
 	if _, err := s.pool.Exec(ctx,"UPDATE nodes SET state='unavailable',deleted_at=NULL,updated_at=now() WHERE id=$1::uuid AND user_id=$2::uuid",nodeID,userID); err != nil {
