@@ -35,6 +35,9 @@ func ValidateDriveName(value string) (string,error) {
 func DriveLetterAvailable(letter string) (bool,error) {
 	letter,err:=NormalizeDriveLetter(letter)
 	if err!=nil { return false,err }
+	if _,ok:=currentSubstTarget(letter); ok {
+		return false,nil
+	}
 	_,err=os.Stat(letter+":\\")
 	switch {
 	case err==nil:
@@ -44,6 +47,15 @@ func DriveLetterAvailable(letter string) (bool,error) {
 	default:
 		return false,err
 	}
+}
+
+func DriveLetterAvailableOrOwned(letter,backingRoot string) (bool,error) {
+	letter,err:=NormalizeDriveLetter(letter)
+	if err!=nil { return false,err }
+	if current,ok:=currentSubstTarget(letter); ok {
+		return samePath(current,backingRoot),nil
+	}
+	return DriveLetterAvailable(letter)
 }
 
 func PreferredDriveLetter() string {
@@ -88,13 +100,31 @@ func EnsureDriveMapping(letter,name,backingRoot string) error {
 }
 
 func currentSubstTarget(letter string) (string,bool) {
-	out,err:=exec.Command("subst",letter+":").CombinedOutput()
+	letter,err:=NormalizeDriveLetter(letter)
 	if err!=nil { return "",false }
-	text:=strings.TrimSpace(string(out))
-	if text=="" { return "",false }
-	parts:=strings.SplitN(text,": => ",2)
-	if len(parts)!=2 { return "",false }
-	return strings.TrimSpace(parts[1]),true
+
+	out,err:=exec.Command("subst").CombinedOutput()
+	if err!=nil { return "",false }
+
+	for _,line:=range strings.Split(string(out),"\n") {
+		line=strings.TrimSpace(line)
+		if line=="" { continue }
+
+		parts:=strings.SplitN(line,"=>",2)
+		if len(parts)!=2 { continue }
+
+		left:=strings.ToUpper(strings.TrimSpace(parts[0]))
+		left=strings.TrimSuffix(left,"\\")
+		left=strings.TrimSuffix(left,":")
+		left=strings.TrimSuffix(left,"\\")
+		left=strings.TrimSuffix(left,":")
+		if left!=letter { continue }
+
+		target:=strings.TrimSpace(parts[1])
+		if target=="" { return "",false }
+		return filepath.Clean(target),true
+	}
+	return "",false
 }
 
 func samePath(a,b string) bool {
