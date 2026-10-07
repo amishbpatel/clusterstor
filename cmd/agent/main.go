@@ -203,6 +203,11 @@ func pairDevice(ctx context.Context,client *agent.Client,cfg agent.Config) (agen
 			SyncRoot:cfg.SyncRoot,
 			DriveName:cfg.DriveName,
 			DriveLetter:cfg.DriveLetter,
+			SyncPaused:cfg.SyncPaused,
+			DefaultAvailability:cfg.DefaultAvailability,
+			AvailabilityRules:append([]agent.AvailabilityRule(nil),cfg.AvailabilityRules...),
+			FreeSpaceReserveBytes:cfg.FreeSpaceReserveBytes,
+			FreeSpaceReservePercent:cfg.FreeSpaceReservePercent,
 			PeerContributionEnabled:status.Registration.Device.PeerContributionEnabled,
 			PeerContributionBytes:status.Registration.Device.PeerContributionBytes,
 		}
