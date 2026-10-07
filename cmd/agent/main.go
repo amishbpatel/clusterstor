@@ -94,6 +94,11 @@ func main() {
 		if err:=agent.EnsureDriveMapping(letter,name,syncRoot); err!=nil {
 			log.Fatalf("mount ClusterStor drive: %v",err)
 		}
+		defer func() {
+			if err:=agent.ReleaseDriveMapping(letter,syncRoot); err!=nil {
+				log.Printf("release ClusterStor drive mapping: %v",err)
+			}
+		}()
 	}
 
 	if err:=agent.SaveConfig(cfg); err!=nil { log.Fatalf("store agent configuration: %v",err) }
