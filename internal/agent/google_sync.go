@@ -430,8 +430,14 @@ func reconcileGoogleRemote(ctx context.Context,client *Client,cfg Config,secret 
 		}
 
 		if item.NodeType=="folder" {
-			journal.SuppressLocalPath(rel,15*time.Second)
-			if err:=os.MkdirAll(full,0700); err!=nil { return err }
+			if info,err:=os.Stat(full); errors.Is(err,os.ErrNotExist) {
+				journal.SuppressLocalPath(rel,15*time.Second)
+				if err:=os.MkdirAll(full,0700); err!=nil { return err }
+			} else if err!=nil {
+				return err
+			} else if !info.IsDir() {
+				return fmt.Errorf("remote folder path is occupied by a local file: %s",rel)
+			}
 			if err:=journal.RecordRemoteItem(rel,journalItemFromGoogle(item,rel,journal)); err!=nil { return err }
 			continue
 		}
@@ -478,7 +484,7 @@ func downloadGoogleRemoteFile(ctx context.Context,client *Client,cfg Config,secr
 	if err!=nil { return err }
 	defer resp.Body.Close()
 
-	temp,err:=os.CreateTemp(filepath.Dir(target),".clusterstor-download-*")
+	temp,err:=os.CreateTemp(filepath.Dir(target),"~clusterstor-download-*.tmp")
 	if err!=nil { return err }
 	tempName:=temp.Name()
 	cleanup:=func() {
@@ -520,7 +526,7 @@ func replaceLocalFile(temp,target string) error {
 	backup:=""
 	if info,err:=os.Stat(target); err==nil {
 		if info.IsDir() { return fmt.Errorf("local path is a directory: %s",target) }
-		backup=target+".clusterstor-old-"+fmt.Sprintf("%d",time.Now().UnixNano())
+		backup=filepath.Join(filepath.Dir(target),"~clusterstor-old-"+fmt.Sprintf("%d",time.Now().UnixNano())+".tmp")
 		if err:=os.Rename(target,backup); err!=nil { return err }
 	} else if !errors.Is(err,os.ErrNotExist) {
 		return err
