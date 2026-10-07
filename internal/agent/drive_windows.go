@@ -99,6 +99,27 @@ func EnsureDriveMapping(letter,name,backingRoot string) error {
 	return nil
 }
 
+func ReleaseDriveMapping(letter,backingRoot string) error {
+	letter,err:=NormalizeDriveLetter(letter)
+	if err!=nil { return err }
+	backingRoot,err=filepath.Abs(strings.TrimSpace(backingRoot))
+	if err!=nil { return err }
+
+	current,ok:=currentSubstTarget(letter)
+	if !ok || !samePath(current,backingRoot) {
+		return nil
+	}
+
+	out,err:=exec.Command("subst",letter+":","/D").CombinedOutput()
+	if err!=nil {
+		return fmt.Errorf("unmap drive %s: %w: %s",letter,err,strings.TrimSpace(string(out)))
+	}
+
+	key:=`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons\`+letter
+	_,_ = exec.Command("reg","delete",key,"/f").CombinedOutput()
+	return nil
+}
+
 func currentSubstTarget(letter string) (string,bool) {
 	letter,err:=NormalizeDriveLetter(letter)
 	if err!=nil { return "",false }
