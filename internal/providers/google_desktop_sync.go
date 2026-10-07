@@ -167,7 +167,7 @@ func (s *Service) listGoogleDesktopItems(ctx context.Context,userID,accountID st
 		FROM managed
 		JOIN nodes n ON n.id=managed.node_id
 		WHERE n.user_id=$1::uuid
-		ORDER BY n.node_type DESC,n.name ASC`,userID,accountID)
+		ORDER BY n.node_type DESC,n.name ASC,managed.provider_item_id ASC`,userID,accountID)
 	if err!=nil { return nil,fmt.Errorf("list desktop sync items: %w",err) }
 	defer rows.Close()
 
