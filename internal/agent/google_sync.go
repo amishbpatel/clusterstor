@@ -106,8 +106,13 @@ func resolveGoogleSnapshot(snapshot GoogleSyncSnapshot) resolvedGoogleSnapshot {
 				}
 				rel=filepath.Join(parent,item.Name)
 			}
+			key:=pathKey(rel)
+			if existing,exists:=result.ItemsByPath[key]; exists && existing.NodeID!=item.NodeID {
+				rel=googleDuplicateLocalPath(rel,item.ProviderItemID,result.ItemsByPath)
+				key=pathKey(rel)
+			}
 			result.PathsByNode[item.NodeID]=rel
-			result.ItemsByPath[pathKey(rel)]=item
+			result.ItemsByPath[key]=item
 			progress=true
 		}
 		if !progress {
@@ -117,6 +122,22 @@ func resolveGoogleSnapshot(snapshot GoogleSyncSnapshot) resolvedGoogleSnapshot {
 		remaining=next
 	}
 	return result
+}
+
+func googleDuplicateLocalPath(rel,providerItemID string,used map[string]GoogleSyncItem) string {
+	dir:=filepath.Dir(rel)
+	name:=filepath.Base(rel)
+	ext:=filepath.Ext(name)
+	stem:=strings.TrimSuffix(name,ext)
+	suffix:=strings.TrimSpace(providerItemID)
+	if len(suffix)>8 { suffix=suffix[:8] }
+	if suffix=="" { suffix="duplicate" }
+	base:=filepath.Join(dir,stem+" (Google duplicate "+suffix+")"+ext)
+	candidate:=base
+	for i:=2;;i++ {
+		if _,exists:=used[pathKey(candidate)]; !exists { return candidate }
+		candidate=filepath.Join(dir,fmt.Sprintf("%s (Google duplicate %s %d)%s",stem,suffix,i,ext))
+	}
 }
 
 func localSyncNameSupported(name string) bool {
