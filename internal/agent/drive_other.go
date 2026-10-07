@@ -14,5 +14,6 @@ func ValidateDriveName(value string) (string,error) {
 }
 
 func DriveLetterAvailable(string) (bool,error) { return false,nil }
+func DriveLetterAvailableOrOwned(string,string) (bool,error) { return false,nil }
 func PreferredDriveLetter() string { return "" }
 func EnsureDriveMapping(string,string,string) error { return nil }
