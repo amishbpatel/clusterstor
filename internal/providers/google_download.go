@@ -82,7 +82,7 @@ func (s *Service) OpenGoogleDownload(ctx context.Context, userID, nodeID, rangeH
 	req.Header.Set("Accept", "*/*")
 	if strings.TrimSpace(rangeHeader) != "" { req.Header.Set("Range", rangeHeader) }
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.transferClient.Do(req)
 	if err != nil { return DownloadStream{}, fmt.Errorf("open google download: %w", err) }
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		resp.Body.Close()
