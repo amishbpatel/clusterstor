@@ -20,6 +20,10 @@ type Config struct {
 	DriveName string `json:"drive_name"`
 	DriveLetter string `json:"drive_letter"`
 	SyncPaused bool `json:"sync_paused"`
+	DefaultAvailability AvailabilityMode `json:"default_availability"`
+	AvailabilityRules []AvailabilityRule `json:"availability_rules,omitempty"`
+	FreeSpaceReserveBytes int64 `json:"free_space_reserve_bytes,omitempty"`
+	FreeSpaceReservePercent int `json:"free_space_reserve_percent,omitempty"`
 	PeerContributionEnabled bool `json:"peer_contribution_enabled"`
 	PeerContributionBytes int64 `json:"peer_contribution_bytes"`
 }
@@ -44,10 +48,12 @@ func LoadConfig() (Config,error) {
 	if err!=nil { return Config{},err }
 	var cfg Config
 	if err:=json.Unmarshal(body,&cfg); err!=nil { return Config{},err }
+	ApplyLocalStorageDefaults(&cfg)
 	return cfg,nil
 }
 
 func SaveConfig(cfg Config) error {
+	ApplyLocalStorageDefaults(&cfg)
 	dir,err:=StateDir()
 	if err!=nil { return err }
 	if err:=os.MkdirAll(dir,0700); err!=nil { return err }
