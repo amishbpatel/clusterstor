@@ -427,6 +427,12 @@ func (j *Journal) SuppressLocalPath(path string,duration time.Duration) {
 	j.suppressed[path]=time.Now().Add(duration)
 }
 
+func (j *Journal) IsLocalPathSuppressed(path string) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.isSuppressedLocked(path)
+}
+
 func (j *Journal) isSuppressedLocked(path string) bool {
 	path=filepath.Clean(strings.TrimSpace(path))
 	if path=="" || path=="." || len(j.suppressed)==0 { return false }
