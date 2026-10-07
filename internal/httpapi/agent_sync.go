@@ -50,7 +50,7 @@ func handleAgentGoogleSnapshot(deviceService *devices.Service,providerService *p
 			writeError(w,http.StatusBadGateway,"oauth_refresh_failed","google drive credentials could not be refreshed")
 		case err!=nil:
 			log.Printf("agent google desktop snapshot failed for device %s: %v",principal.Device.ID,err)
-			writeError(w,http.StatusBadGateway,"provider_error","unable to refresh google drive desktop snapshot")
+			writeError(w,http.StatusBadGateway,"provider_error","google desktop snapshot failed: "+err.Error())
 		default:
 			writeJSON(w,http.StatusOK,snapshot)
 		}
