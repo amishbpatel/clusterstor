@@ -47,6 +47,7 @@ type Service struct {
 	pool       *pgxpool.Pool
 	cfg        Config
 	httpClient *http.Client
+	transferClient *http.Client
 	key        []byte
 }
 
@@ -109,6 +110,7 @@ func NewService(pool *pgxpool.Pool, cfg Config) (*Service, error) {
 		pool: pool,
 		cfg: cfg,
 		httpClient: &http.Client{Timeout: 20 * time.Second},
+		transferClient: &http.Client{},
 		key: key,
 	}, nil
 }
