@@ -54,6 +54,10 @@ func main() {
 	} else if runtime.GOOS=="windows" {
 		cfg.SyncRoot,err=agent.UpgradeLegacySyncRoot(cfg.SyncRoot)
 		if err!=nil { log.Fatalf("upgrade legacy ClusterStor backing folder: %v",err) }
+		if strings.TrimSpace(cfg.SyncRoot)=="" {
+			cfg.SyncRoot,err=agent.DefaultSyncRoot()
+			if err!=nil { log.Fatalf("resolve ClusterStor backing folder: %v",err) }
+		}
 	}
 	if strings.TrimSpace(*driveNameFlag)!="" {
 		cfg.DriveName=*driveNameFlag
@@ -220,10 +224,10 @@ func promptDrive(reader *bufio.Reader,cfg agent.Config) (agent.Config,error) {
 			fmt.Printf("Invalid drive letter: %v\n",normalizeErr)
 			continue
 		}
-		available,checkErr:=agent.DriveLetterAvailable(letter)
+		available,checkErr:=agent.DriveLetterAvailableOrOwned(letter,cfg.SyncRoot)
 		if checkErr!=nil { return cfg,checkErr }
 		if !available {
-			fmt.Printf("Drive %s: is already in use. Choose another letter.\n",letter)
+			fmt.Printf("Drive %s: is already in use by another drive. Choose another letter.\n",letter)
 			continue
 		}
 		cfg.DriveLetter=letter
